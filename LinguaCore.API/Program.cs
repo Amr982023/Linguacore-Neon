@@ -48,12 +48,6 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddHttpContextAccessor();
 
-// ── Firebase ──────────────────────────────────────────────────────────────────
-FirebaseApp.Create(new AppOptions
-{
-    Credential = GoogleCredential.FromFile(
-        builder.Configuration["Firebase:ServiceAccountPath"])
-});
 
 // ── JWT Authentication ────────────────────────────────────────────────────────
 var jwtKey = builder.Configuration["Jwt:Key"]
