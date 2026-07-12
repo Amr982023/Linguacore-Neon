@@ -101,7 +101,7 @@ public class SalesService : ISalesService
     public async Task<ApiResponse<SalesStatsResponse>> GetStatsAsync(Guid branchId)
     {
         var now = DateTime.UtcNow;
-        var startOfMonth = new DateTime(now.Year, now.Month, 1);
+        var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var last3Months = now.AddMonths(-3);
         var lastYear = now.AddYears(-1);
 
