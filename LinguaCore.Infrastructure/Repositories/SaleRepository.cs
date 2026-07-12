@@ -37,8 +37,17 @@ public class SaleRepository : GenericRepository<Sale>, ISaleRepository
     }
 
     public async Task<IEnumerable<Sale>> GetByBranchSinceAsync(Guid branchId, DateTime since)
-        => await _dbSet
-            .Where(s => s.BranchId == branchId && s.SaleDate >= since)
+    {
+        var sinceUtc = since.Kind switch
+        {
+            DateTimeKind.Utc => since,
+            DateTimeKind.Local => since.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(since, DateTimeKind.Utc)
+        };
+
+        return await _dbSet
+            .Where(s => s.BranchId == branchId && s.SaleDate >= sinceUtc)
             .ToListAsync();
+    }
 }
 
