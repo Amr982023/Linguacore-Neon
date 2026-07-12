@@ -1,0 +1,25 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+publish/
+*.pfx
+
+## Node
+frontend/node_modules/
+frontend/dist/
+
+## EF
+LinguaCore.Infrastructure/Migrations/
+
+## Build outputs
+LinguaCore.API/wwwroot/
+
+## Config (keep template, ignore secrets override)
+appsettings.Production.json
+
+## OS
+.DS_Store
+Thumbs.db

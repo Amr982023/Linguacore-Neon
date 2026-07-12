@@ -1,0 +1,515 @@
+# 🧪 Sync Dashboard – User Testing & Workflow Guide
+
+---
+
+# 🎯 1. الهدف من الصفحة
+
+الصفحة دي بتسمح للمستخدم (Admin / Branch Manager) إنه:
+
+* يراقب حالة الـ sync
+* يتحكم في الـ synchronization
+* يحل المشاكل (OutOfSync)
+* يعمل bootstrap / cleanup
+
+---
+
+# 🧭 2. فهم الصفحة (UI Breakdown)
+
+---
+
+## 🟢 Header
+
+### زر:
+
+* **Full Sync**
+
+  * يعمل:
+
+    ```text
+    POST /api/sync/trigger
+    ```
+  * الهدف:
+
+    * Bootstrap
+    * إعادة رفع البيانات
+
+---
+
+## 🟢 Metrics (أعلى الصفحة)
+
+| العنصر         | المعنى                        |
+| -------------- | ----------------------------- |
+| Branch Status  | حالة الفرع (OK / OUT_OF_SYNC) |
+| Pending Outbox | عدد الأحداث اللي لسه متبعتتش  |
+| Last Heartbeat | آخر مرة السيستم كان شغال      |
+| Last Event     | آخر event اتطبق               |
+
+---
+
+## 🟢 Local Branch Card
+
+يعرض:
+
+* Last Seen
+* TTL remaining
+* OutOfSync flag
+* Last full sync
+
+---
+
+## 🟢 Outbox Queue
+
+يعرض:
+
+* عدد الأحداث pending
+* زر:
+
+  * **Publish now**
+
+---
+
+## 🟢 History
+
+يعرض:
+
+* كل عمليات Full Sync
+* النجاح / الفشل
+
+---
+
+## 🟢 Maintenance
+
+### أزرار:
+
+| زر              | الوظيفة            |
+| --------------- | ------------------ |
+| Force Cleanup   | حذف events القديمة |
+| Reset OutOfSync | فك الحظر           |
+| Seed Full Data  | bootstrap          |
+
+---
+
+# 🔄 3. Workflow الطبيعي (User Journey)
+
+---
+
+## 🟢 الحالة الطبيعية (System Healthy)
+
+---
+
+### الخطوات:
+
+1. افتح الصفحة
+2. راقب:
+
+```text
+Status = OK
+Pending = 0 أو قليل
+```
+
+---
+
+### المتوقع:
+
+✔ sync بيتم أوتوماتيك كل 30 ثانية
+✔ مفيش تدخل من المستخدم
+
+---
+
+---
+
+## 🟢 Workflow 1 — Insert / Update Data
+
+---
+
+### الخطوات:
+
+1. افتح Branch A
+2. أضف Student
+3. روح Dashboard
+
+---
+
+### تحقق:
+
+✔ Pending Outbox > 0
+✔ بعد 30 ثانية → يرجع 0
+
+---
+
+### في Branch B:
+
+✔ البيانات تظهر
+
+---
+
+---
+
+## 🟢 Workflow 2 — Manual Publish
+
+---
+
+### الخطوات:
+
+1. Pending Outbox > 0
+2. اضغط:
+
+```text
+Publish now
+```
+
+---
+
+### المتوقع:
+
+✔ Toast:
+
+```text
+"Pending outbox events published"
+```
+
+✔ Pending = 0
+
+---
+
+---
+
+## 🟢 Workflow 3 — Full Sync (Bootstrap)
+
+---
+
+### الخطوات:
+
+1. اضغط:
+
+```text
+Full Sync
+```
+
+---
+
+### المتوقع:
+
+✔ Toast:
+
+```text
+Full sync done — X records
+```
+
+✔ يظهر في History
+
+---
+
+---
+
+## 🟢 Workflow 4 — Seed New Branch
+
+---
+
+### الخطوات:
+
+1. على branch جديد
+2. اضغط:
+
+```text
+Seed full data
+```
+
+---
+
+### المتوقع:
+
+✔ كل البيانات تتبعت
+✔ الفرع الجديد يتملأ
+
+---
+
+---
+
+# 🚨 4. Error & Recovery Scenarios
+
+---
+
+## 🔴 Scenario 1 — Out Of Sync
+
+---
+
+### الحالة:
+
+```text
+Status = OUT_OF_SYNC
+```
+
+---
+
+### يظهر:
+
+* Banner أحمر
+* زر:
+
+```text
+Reset flag
+```
+
+---
+
+### الخطوات:
+
+1. امسح الداتا local (DB reset)
+2. اضغط:
+
+```text
+Seed full data
+```
+
+3. بعد كده:
+
+```text
+Reset out-of-sync
+```
+
+---
+
+### المتوقع:
+
+✔ Status يرجع OK
+✔ sync يشتغل
+
+---
+
+---
+
+## 🔴 Scenario 2 — TTL قرب ينتهي
+
+---
+
+### يظهر:
+
+* TTL bar أصفر / أحمر
+
+---
+
+### الخطوات:
+
+1. شغل السيستم بسرعة
+2. أو اعمل full sync
+
+---
+
+---
+
+## 🔴 Scenario 3 — Pending عالي
+
+---
+
+### الحالة:
+
+```text
+Pending Outbox = رقم كبير
+```
+
+---
+
+### الخطوات:
+
+1. اضغط:
+
+```text
+Publish now
+```
+
+---
+
+### المتوقع:
+
+✔ يقل تدريجيًا
+
+---
+
+---
+
+## 🔴 Scenario 4 — Sync Failed
+
+---
+
+### يظهر في History:
+
+```text
+Status = FAILED
+```
+
+---
+
+### الخطوات:
+
+1. اضغط:
+
+```text
+Full Sync
+```
+
+2. راقب logs
+
+---
+
+---
+
+# 🧹 5. Maintenance Scenarios
+
+---
+
+## 🟢 Scenario — Cleanup
+
+---
+
+### الخطوات:
+
+1. اضغط:
+
+```text
+Force cleanup
+```
+
+---
+
+### المتوقع:
+
+✔ Toast:
+
+```text
+Cleanup done
+```
+
+✔ Firebase يتم تنظيفه
+
+---
+
+---
+
+## 🟢 Scenario — Reset Only
+
+---
+
+### الخطوات:
+
+1. اضغط:
+
+```text
+Reset out-of-sync
+```
+
+---
+
+### ⚠️ مهم:
+
+```text
+لا تستخدمه إلا بعد reset DB
+```
+
+---
+
+---
+
+# 🧪 6. Stress Testing
+
+---
+
+## Test 1 — High Load
+
+1. أضف 500+ records
+2. راقب:
+
+✔ Pending يزيد
+✔ يقل تدريجيًا
+
+---
+
+---
+
+## Test 2 — Restart أثناء sync
+
+1. اعمل restart للبرنامج
+2. تحقق:
+
+✔ مفيش duplicate
+✔ sync يكمل
+
+---
+
+---
+
+## Test 3 — Offline Branch
+
+1. اقفل البرنامج
+2. اعمل تغييرات في فرع تاني
+3. افتح الأول
+
+✔ البيانات تتعمل sync
+
+---
+
+---
+
+# 🧠 7. Expected User Behavior
+
+---
+
+## المستخدم الطبيعي:
+
+✔ يراقب فقط
+✔ rarely يستخدم buttons
+
+---
+
+## الأدمن:
+
+✔ يستخدم:
+
+* Full Sync
+* Cleanup
+* Reset
+
+---
+
+---
+
+# 🚀 8. Summary
+
+---
+
+## النظام بيشتغل كالتالي:
+
+```text
+User → Local DB → Outbox → Firebase → Other Branches
+```
+
+---
+
+## الصفحة دي بتسمح:
+
+✔ Monitoring
+✔ Control
+✔ Recovery
+
+---
+
+## أهم أزرار:
+
+| زر        | استخدامه   |
+| --------- | ---------- |
+| Full Sync | bootstrap  |
+| Publish   | تسريع sync |
+| Cleanup   | تنظيف      |
+| Reset     | recovery   |
+
+---
+
+# 🏁 Final Note
+
+> ⚠️ المستخدم لازم يفهم:
+
+```text
+Reset OutOfSync بدون DB reset = Data corruption
+```
+
+---

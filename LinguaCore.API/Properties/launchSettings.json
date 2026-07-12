@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "LinguaCore.API": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      //"applicationUrl": "https://localhost:50344;http://localhost:50345",
+      "applicationUrl": "https://localhost:50344"
+    }
+  }
+}

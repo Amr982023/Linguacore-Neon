@@ -1,0 +1,500 @@
+# 🚀 LinguaCore Multi-Branch Sync System
+
+## Event-Driven Architecture Documentation
+
+---
+
+# 🎯 1. Overview
+
+This system enables **real-time data synchronization between multiple branches** using:
+
+* Local SQL database per branch (Source of Truth)
+* Firebase Realtime Database (Event Bus only)
+
+---
+
+## 🧠 Core Principle
+
+```text
+Local Database = Source of Truth  
+Firebase = Transport Layer (Events Only)
+```
+
+---
+
+# 🏗️ 2. Architecture Components
+
+---
+
+## 🟢 2.1 Local Database (Per Branch)
+
+Each branch has its own SQL database.
+
+### Responsibilities:
+
+* Store all business data
+* Execute CRUD operations
+* Maintain consistency locally
+
+---
+
+## 🟢 2.2 Outbox Pattern
+
+### Table: `OutboxEvent`
+
+Stores all changes before sending to Firebase.
+
+### Fields:
+
+* `Entity` → table name (student, payment…)
+* `EntityId`
+* `Operation` → UPSERT / DELETE
+* `Payload` → JSON snapshot
+* `Pushed` → sent or not
+* `ExpiresAt` → TTL
+
+---
+
+### 🎯 Purpose:
+
+* Guarantees **reliable event delivery**
+* Prevents data loss
+* Enables retry
+
+---
+
+## 🟢 2.3 Firebase (Realtime DB)
+
+### Structure:
+
+```text
+/events/{eventId}
+/acks/{eventId}/{branchId}
+/branches/{branchId}
+```
+
+---
+
+### Responsibilities:
+
+* Store events
+* Distribute events to all branches
+* Track acknowledgments (ACKs)
+
+---
+
+## 🟢 2.4 EventDrivenSyncService
+
+### Core engine of the system
+
+Handles:
+
+* Publishing events
+* Polling Firebase
+* Applying events
+* Acknowledging events
+* Cleanup
+
+---
+
+---
+
+## 🟢 2.5 EventDrivenSyncWorker
+
+Background service running every **30 seconds**
+
+### Responsibilities:
+
+```text
+1. Check OutOfSync
+2. Publish events
+3. Poll Firebase
+4. Apply events
+5. ACK
+6. SaveChanges
+7. Update heartbeat
+8. Cleanup (hourly)
+```
+
+---
+
+---
+
+## 🟢 2.6 FirebaseSyncService (Bootstrap Only)
+
+### Used ONLY for:
+
+* New branch initialization
+* Recovery after data loss
+
+---
+
+## ❌ NOT used for:
+
+* Daily sync
+* Continuous sync
+
+---
+
+---
+
+## 🟢 2.7 BranchRegistry
+
+Tracks:
+
+* LastSeenAt
+* IsOutOfSync
+* LastProcessedEventTime
+
+---
+
+### Purpose:
+
+* Detect offline branches
+* Prevent invalid sync
+
+---
+
+---
+
+## 🟢 2.8 EventAck
+
+Tracks:
+
+```text
+Which branch processed which event
+```
+
+---
+
+### Purpose:
+
+* Prevent deletion before all branches sync
+* Ensure consistency
+
+---
+
+---
+
+# 🔄 3. Data Flow (End-to-End)
+
+---
+
+## 🟢 Step 1 — Local Change
+
+Example:
+
+```text
+Student updated in Branch A
+```
+
+---
+
+## 🟢 Step 2 — Outbox Event Created
+
+```text
+OutboxEvent inserted:
+Entity = student
+Operation = UPSERT
+Payload = JSON snapshot
+```
+
+---
+
+## 🟢 Step 3 — Publish to Firebase
+
+Worker calls:
+
+```text
+PublishPendingEventsAsync()
+```
+
+---
+
+### Result:
+
+```text
+Firebase:
+/events/{eventId}
+```
+
+---
+
+## 🟢 Step 4 — Other Branches Poll
+
+Worker calls:
+
+```text
+PollAndApplyRemoteEventsAsync()
+```
+
+---
+
+### Fetch:
+
+```text
+orderBy=createdAt
+limitToLast=200
+```
+
+---
+
+---
+
+## 🟢 Step 5 — Apply Event
+
+Each branch:
+
+* Validates dependencies
+* Applies change locally
+* Uses **Last Write Wins (LWW)**
+
+---
+
+---
+
+## 🟢 Step 6 — ACK Event
+
+```text
+/acks/{eventId}/{branchId}
+```
+
+---
+
+---
+
+## 🟢 Step 7 — Cleanup
+
+Event is deleted when:
+
+```text
+✔ All active branches ACKed
+OR
+✔ TTL expired
+```
+
+---
+
+---
+
+# ⚠️ 4. OutOfSync Mechanism
+
+---
+
+## Trigger:
+
+```text
+Now - LastSeenAt > 3 days
+```
+
+---
+
+## Behavior:
+
+* Sync stops completely
+* System marked as invalid
+
+---
+
+## Recovery:
+
+```http
+POST /api/sync/trigger?forceBootstrap=true
+POST /api/sync/reset-out-of-sync
+```
+
+---
+
+---
+
+# 🧠 5. Consistency Model
+
+---
+
+## Type:
+
+```text
+Eventually Consistent System
+```
+
+---
+
+## Guarantees:
+
+✔ No data loss
+✔ Idempotent updates
+✔ Last Write Wins
+
+---
+
+---
+
+# ⚡ 6. Performance Optimizations
+
+---
+
+## ✔ Batching
+
+* Publish: max 100 events
+* Poll: max 200 events
+
+---
+
+## ✔ Single SaveChanges
+
+```text
+All DB writes saved once per cycle
+```
+
+---
+
+## ✔ Firebase Index
+
+```json
+".indexOn": ["createdAt"]
+```
+
+---
+
+## ✔ Delta Sync
+
+```text
+ModifiedAt >= since
+```
+
+---
+
+---
+
+# 🧪 7. Testing Scenarios
+
+---
+
+## 🟢 Scenario 1 — Basic Sync
+
+1. Create student in Branch A
+2. Wait 30 seconds
+3. Verify in Branch B
+
+---
+
+## 🟢 Scenario 2 — Update Sync
+
+1. Update record in Branch A
+2. Verify update in Branch B
+
+---
+
+## 🟢 Scenario 3 — Delete Sync
+
+1. Delete record
+2. Verify removal in all branches
+
+---
+
+## 🟢 Scenario 4 — Offline Branch
+
+1. Stop Branch B
+2. Create data in A
+3. Start B
+
+✔ B syncs missing events
+
+---
+
+---
+
+## 🔴 Scenario 5 — OutOfSync
+
+1. Stop branch > 3 days
+2. Restart
+
+✔ System blocks sync
+✔ Requires manual reset
+
+---
+
+---
+
+## 🟢 Scenario 6 — High Load
+
+1. Insert 500+ records
+2. Verify:
+
+✔ No crash
+✔ No duplication
+✔ Smooth sync
+
+---
+
+---
+
+## 🟢 Scenario 7 — Duplicate Prevention
+
+1. Restart service during sync
+2. Ensure:
+
+✔ No duplicate records
+
+---
+
+---
+
+# 🔐 8. Security
+
+---
+
+## Firebase Rules:
+
+```json
+auth != null
+```
+
+---
+
+## Access:
+
+* Only authenticated services can read/write
+
+---
+
+---
+
+# 🧠 9. Failure Handling
+
+---
+
+## Cases handled:
+
+✔ Network failure
+✔ Partial sync
+✔ Missing dependency
+✔ Retry logic
+
+---
+
+---
+
+# 🚀 10. Final System Properties
+
+---
+
+✔ Real-time sync
+✔ Offline tolerance
+✔ Scalable architecture
+✔ Firebase free plan optimized
+✔ No duplication
+✔ Strong consistency guarantees
+
+---
+
+# 🏁 Conclusion
+
+This system implements a **robust event-driven distributed synchronization model** suitable for:
+
+* Multi-branch businesses
+* POS systems
+* Educational centers
+* SaaS multi-tenant systems
+
+---

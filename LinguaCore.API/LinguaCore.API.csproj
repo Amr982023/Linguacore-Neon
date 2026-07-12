@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+	<PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LinguaCore.API</RootNamespace>
+
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+		<ApplicationIcon>ChatGPT Image Jun 18, 2026, 07_12_47 PM.ico</ApplicationIcon>
+</PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\LinguaCore.Application\LinguaCore.Application.csproj" />
+		<ProjectReference Include="..\LinguaCore.Infrastructure\LinguaCore.Infrastructure.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+		<PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="9.0.0" />
+	</ItemGroup>
+	<!-- Copy built React app into wwwroot -->
+	<ItemGroup>
+		<Content Update="wwwroot\**" CopyToPublishDirectory="PreserveNewest" />
+	</ItemGroup>
+</Project>
