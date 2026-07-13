@@ -444,6 +444,9 @@ public class AppDbContext : DbContext
             .HasOne(e => e.RecordedByUser).WithMany()
             .HasForeignKey(e => e.RecordedBy).OnDelete(DeleteBehavior.Restrict);
 
+        modelBuilder.Entity<ExamResult>()
+            .HasIndex(x => new { x.ExamId, x.Passed });
+
         // Exam
         modelBuilder.Entity<Exam>()
             .HasOne(e => e.Group).WithMany(g => g.Exams)
@@ -492,6 +495,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Instructor>()
             .HasOne(i => i.Person).WithOne(p => p.Instructor)
             .HasForeignKey<Instructor>(i => i.PersonId).OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Instructor>()
+            .HasIndex(x => new { x.BranchId, x.IsActive });
+
+        modelBuilder.Entity<InstructorLanguage>()
+            .HasIndex(x => x.LanguageId); // existing unique index is (InstructorId, LanguageId) — doesn't help a reverse lookup by LanguageId alone
 
         // User
         modelBuilder.Entity<User>()

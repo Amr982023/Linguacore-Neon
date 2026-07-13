@@ -14,10 +14,14 @@ public class InstructorsController : ControllerBase
     private readonly IInstructorService _service;
     public InstructorsController(IInstructorService service) => _service = service;
 
+    // ?? CHANGED: now accepts [FromQuery] InstructorFilterRequest (page, pageSize, search, languageId, isActive) ??
     [HttpGet("branch/{branchId}")]
     [Authorize(Policy = PermissionPolicies.InstructorsRead)]
-    public async Task<IActionResult> GetByBranch(Guid branchId)
-        => Ok(await _service.GetByBranchAsync(branchId));
+    public async Task<IActionResult> GetByBranch(Guid branchId, [FromQuery] InstructorFilterRequest filter)
+    {
+        var result = await _service.GetByBranchAsync(branchId, filter);
+        return result.Success ? Ok(result) : BadRequest(result);
+    }
 
     [HttpGet("{id}")]
     [Authorize(Policy = PermissionPolicies.InstructorsRead)]
@@ -41,6 +45,7 @@ public class InstructorsController : ControllerBase
             ? CreatedAtAction(nameof(GetById), new { id = result.Data!.Id }, result)
             : BadRequest(result);
     }
+
     [HttpPatch("{id}/toggle-active")]
     [Authorize(Policy = PermissionPolicies.InstructorsWrite)]
     public async Task<IActionResult> ToggleActive(Guid id)
@@ -48,6 +53,7 @@ public class InstructorsController : ControllerBase
         var result = await _service.ToggleActiveAsync(id);
         return result.Success ? Ok(result) : NotFound(result);
     }
+
     [HttpPut]
     [Authorize(Policy = PermissionPolicies.InstructorsWrite)]
     public async Task<IActionResult> Update([FromBody] UpdateInstructorRequest req)
