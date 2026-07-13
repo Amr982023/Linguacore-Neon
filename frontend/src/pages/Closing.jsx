@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
@@ -42,7 +42,11 @@ import {
   ReceiptText,
   Gift,
   Wallet,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+
+const PAGE_SIZE = 20;
 
 // ── Formatters ─────────────────────────────────────────────────────────────
 const fmt = (n) =>
@@ -119,6 +123,32 @@ function AuditChips({ partialCount = 0, crossCount = 0, size = "sm" }) {
       {partialCount === 0 && crossCount === 0 && (
         <span className="text-xs text-gray-400">—</span>
       )}
+    </div>
+  );
+}
+
+function Pager({ page, totalPages, onPrev, onNext }) {
+  return (
+    <div className="flex items-center justify-between p-3 border-t dark:border-gray-700 text-sm">
+      <span className="text-gray-500">
+        Page {page} of {totalPages}
+      </span>
+      <div className="flex gap-2">
+        <button
+          onClick={onPrev}
+          disabled={page <= 1}
+          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <button
+          onClick={onNext}
+          disabled={page >= totalPages}
+          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -512,8 +542,7 @@ function FinancialIntegrityNotice({
 }
 
 // ── Create Closing Modal ───────────────────────────────────────────────────
-function CreateClosingModal({ onClose, branchId }) {
-  const qc = useQueryClient();
+function CreateClosingModal({ onClose, branchId, onCreated }) {
   const {
     register,
     handleSubmit,
@@ -545,10 +574,9 @@ function CreateClosingModal({ onClose, branchId }) {
         periodEnd: new Date(d.periodEnd).toISOString(),
         notes: d.notes,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
       toast.success("Closing created successfully");
-      qc.invalidateQueries(["closings"]);
-      qc.invalidateQueries(["closing-audit-flags"]);
+      onCreated(response?.data?.data);
       onClose();
     },
     onError: (e) =>
@@ -630,11 +658,6 @@ function CreateClosingModal({ onClose, branchId }) {
 }
 
 // ── Center Deductions Panel ────────────────────────────────────────────────
-// ── Center Deductions Panel ────────────────────────────────────────────────
-// Deductions are now created independently on the Center Deductions page and
-// swept into the closing automatically at creation time — the backend queries
-// CenterDeduction WHERE DeductionDate falls within the closing's period. This
-// panel is read-only display + a link to manage deductions elsewhere.
 function CenterDeductionsPanel({ closing }) {
   const deductions = closing.centerDeductions || [];
 
@@ -841,7 +864,6 @@ function InstructorAdjustmentsPanel({ closing, row, onUpdate }) {
 
   return (
     <div className="px-4 py-3 bg-white dark:bg-gray-800/80 border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {/* Bonuses */}
       <div className="rounded-lg border border-emerald-200 dark:border-emerald-700/50 overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2 bg-emerald-50 dark:bg-emerald-900/20">
           <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -946,7 +968,6 @@ function InstructorAdjustmentsPanel({ closing, row, onUpdate }) {
         </div>
       </div>
 
-      {/* Salary deductions */}
       <div className="rounded-lg border border-orange-200 dark:border-orange-700/50 overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2 bg-orange-50 dark:bg-orange-900/20">
           <span className="flex items-center gap-1.5 text-xs font-semibold text-orange-700 dark:text-orange-300">
@@ -1341,10 +1362,14 @@ function ClosingDetailModal({
     0,
   );
 
+  // Explicit, user-triggered refetch of just this detail — this is not "auto
+  // reload", it's the direct result of the admin adding/removing a bonus or
+  // deduction inside this modal, so refetching the detail (and the summary
+  // list, since totals changed) is exactly what should happen.
   const handleUpdate = () => {
-    qc.invalidateQueries(["closing-detail"]);
-    qc.invalidateQueries(["closings"]);
-    qc.invalidateQueries(["closing-audit-flags"]);
+    qc.invalidateQueries({ queryKey: ["closing-detail", closing.id] });
+    qc.invalidateQueries({ queryKey: ["closings"] });
+    qc.invalidateQueries({ queryKey: ["closing-audit-flags"] });
   };
 
   return (
@@ -1354,7 +1379,6 @@ function ClosingDetailModal({
         onClick={onClose}
       />
       <div className="relative w-full max-w-5xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden">
-        {/* ── Header ─────────────────────────────────────────────────────── */}
         <div className="bg-gradient-to-r from-slate-800 to-slate-900 dark:from-slate-900 dark:to-black px-6 py-5">
           <div className="flex items-start justify-between">
             <div>
@@ -1378,7 +1402,6 @@ function ClosingDetailModal({
             </button>
           </div>
 
-          {/* Layer strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mt-5">
             {[
               {
@@ -1459,7 +1482,6 @@ function ClosingDetailModal({
             })}
           </div>
 
-          {/* Flags strip */}
           {(crossPeriodTotal > 0 ||
             partialPayments.length > 0 ||
             refundRecords.length > 0) && (
@@ -1490,7 +1512,6 @@ function ClosingDetailModal({
           )}
         </div>
 
-        {/* ── Action banners ──────────────────────────────────────────────── */}
         <div className="px-6 pt-4 space-y-2">
           {closing.status === "DRAFT" && (
             <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl">
@@ -1536,7 +1557,6 @@ function ClosingDetailModal({
           )}
         </div>
 
-        {/* ── Meta row ────────────────────────────────────────────────────── */}
         <div className="px-6 py-3 flex flex-wrap gap-4 text-xs text-gray-400 border-b border-gray-100 dark:border-gray-800">
           <span className="flex items-center gap-1">
             <Building2 size={12} /> {closing.branchName}
@@ -1554,7 +1574,6 @@ function ClosingDetailModal({
           )}
         </div>
 
-        {/* ── Scrollable body ─────────────────────────────────────────────── */}
         <div className="px-6 py-4 space-y-2 max-h-[58vh] overflow-y-auto">
           <FinancialIntegrityNotice
             crossPeriodCount={crossPeriodTotal}
@@ -1562,7 +1581,6 @@ function ClosingDetailModal({
             refundCount={refundRecords.length}
           />
 
-          {/* Layer 1 */}
           <div>
             <div className="flex items-center gap-2 mb-2">
               <DollarSign size={13} className="text-emerald-500" />
@@ -1576,7 +1594,6 @@ function ClosingDetailModal({
             />
           </div>
 
-          {/* Layer 2 */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -1597,7 +1614,7 @@ function ClosingDetailModal({
               </div>
             </div>
 
-            <CenterDeductionsPanel closing={closing} onUpdate={handleUpdate} />
+            <CenterDeductionsPanel closing={closing} />
 
             {instructorCount === 0 ? (
               <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 dark:bg-gray-800/40 rounded-xl">
@@ -1659,7 +1676,6 @@ function ClosingDetailModal({
             )}
           </div>
 
-          {/* Layer 3 */}
           <div>
             <div className="flex items-center gap-2 mb-2">
               <ListChecks size={13} className="text-amber-500" />
@@ -1679,7 +1695,6 @@ function ClosingDetailModal({
             )}
           </div>
 
-          {/* Layer 4 — Refunds */}
           <div>
             <div className="flex items-center gap-2 mb-2">
               <ReceiptText size={13} className="text-rose-500" />
@@ -1703,7 +1718,6 @@ function ClosingDetailModal({
           </div>
         </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────────── */}
         <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 flex justify-end">
           <Button variant="secondary" onClick={onClose}>
             Close
@@ -1742,38 +1756,91 @@ export default function Closing() {
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(1);
 
-  const { data: res, isLoading } = useQuery({
-    queryKey: ["closings", branchId],
-    queryFn: () => closingApi.getByBranch(branchId),
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter]);
+
+  const queryParams = useMemo(
+    () => ({ page, pageSize: PAGE_SIZE, status: statusFilter || undefined }),
+    [page, statusFilter],
+  );
+  const queryKey = ["closings", branchId, queryParams];
+
+  const {
+    data: res,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey,
+    queryFn: () => closingApi.getByBranchPaged(branchId, queryParams),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    keepPreviousData: true,
   });
+
   const { data: flagsRes } = useQuery({
     queryKey: ["closing-audit-flags", branchId],
     queryFn: () => closingApi.getAuditFlags(branchId),
     enabled: !!branchId,
-    staleTime: 30_000,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: detailRes, isLoading: detailLoading } = useQuery({
     queryKey: ["closing-detail", selected?.id],
     queryFn: () => closingApi.getDetails(selected.id),
     enabled: !!selected?.id,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const closings = res?.data?.data || [];
+  const closings = res?.data?.data?.items || [];
+  const totalCount = res?.data?.data?.totalCount || 0;
+  const totalPages = res?.data?.data?.totalPages || 1;
+
   const auditFlags = (flagsRes?.data?.data || []).reduce((m, f) => {
     m[f.closingId] = f;
     return m;
   }, {});
   const detail = detailRes?.data?.data;
 
+  // ── Cache patch helper: mutate the row inside the current paged cache ─
+  const patchClosingRow = (id, updater) => {
+    qc.setQueryData(queryKey, (old) => {
+      if (!old) return old;
+      const items = old.data?.data?.items || [];
+      return {
+        ...old,
+        data: {
+          ...old.data,
+          data: {
+            ...old.data.data,
+            items: items.map((c) => (c.id === id ? updater(c) : c)),
+          },
+        },
+      };
+    });
+  };
+
   const confirmMut = useMutation({
     mutationFn: (id) => closingApi.confirm({ closingId: id }),
     onSuccess: () => {
       toast.success("Closing confirmed and locked");
-      qc.invalidateQueries(["closings"]);
-      qc.invalidateQueries(["closing-detail"]);
-      qc.invalidateQueries(["closing-audit-flags"]);
+      patchClosingRow(selected?.id, (c) => ({ ...c, status: "CONFIRMED" }));
+      // Detail modal reflects a status transition the admin just triggered —
+      // refetching the open detail here is a direct result of their action,
+      // not an unrelated auto-reload.
+      qc.invalidateQueries({ queryKey: ["closing-detail", selected?.id] });
     },
     onError: (e) =>
       toast.error(
@@ -1784,9 +1851,8 @@ export default function Closing() {
     mutationFn: (id) => closingApi.markPaid({ closingId: id }),
     onSuccess: () => {
       toast.success("Marked as Paid");
-      qc.invalidateQueries(["closings"]);
-      qc.invalidateQueries(["closing-detail"]);
-      qc.invalidateQueries(["closing-audit-flags"]);
+      patchClosingRow(selected?.id, (c) => ({ ...c, status: "PAID" }));
+      qc.invalidateQueries({ queryKey: ["closing-detail", selected?.id] });
     },
     onError: (e) =>
       toast.error(
@@ -1795,10 +1861,24 @@ export default function Closing() {
   });
   const deleteMut = useMutation({
     mutationFn: (id) => closingApi.delete(id),
-    onSuccess: () => {
+    onSuccess: (_response, id) => {
       toast.success("Closing deleted");
-      qc.invalidateQueries(["closings"]);
-      qc.invalidateQueries(["closing-audit-flags"]);
+      qc.setQueryData(queryKey, (old) => {
+        if (!old) return old;
+        const items = old.data?.data?.items || [];
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            data: {
+              ...old.data.data,
+              items: items.filter((c) => c.id !== id),
+              totalCount: Math.max(0, (old.data.data.totalCount || 1) - 1),
+            },
+          },
+        };
+      });
+      qc.invalidateQueries({ queryKey: ["closing-audit-flags"] });
       setDeleteTarget(null);
     },
     onError: (e) =>
@@ -1815,6 +1895,8 @@ export default function Closing() {
     (c) => c.status === "CONFIRMED",
   ).length;
 
+  // NOTE: these are page-level totals now, not branch-wide across all
+  // closings — same tradeoff applied on the other paginated pages.
   const grandIncome = closings.reduce(
     (s, c) => s + (c.totalIncomeReceived || 0),
     0,
@@ -1850,25 +1932,25 @@ export default function Closing() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="Total Closings"
-          value={closings.length}
+          title="Total (filtered)"
+          value={totalCount}
           color="bg-slate-600"
           icon={FileText}
         />
         <StatCard
-          title="Draft"
+          title="Draft (page)"
           value={draftCount}
           color="bg-amber-500"
           icon={Clock}
         />
         <StatCard
-          title="Confirmed"
+          title="Confirmed (page)"
           value={confirmedCount}
           color="bg-blue-600"
           icon={Lock}
         />
         <StatCard
-          title="Paid"
+          title="Paid (page)"
           value={paidCount}
           color="bg-emerald-600"
           icon={CheckCircle}
@@ -1876,6 +1958,22 @@ export default function Closing() {
       </div>
 
       <div className="card overflow-hidden">
+        <div className="p-4 border-b dark:border-gray-700 flex items-center gap-3">
+          <select
+            className="input w-40 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All Statuses</option>
+            <option value="DRAFT">Draft</option>
+            <option value="CONFIRMED">Confirmed</option>
+            <option value="PAID">Paid</option>
+          </select>
+          <span className="text-xs text-gray-500 ml-auto">
+            {totalCount} records{isFetching ? " · updating…" : ""}
+          </span>
+        </div>
+
         {isLoading ? (
           <div className="p-8 text-center text-gray-400 text-sm">
             Loading closings…
@@ -1883,7 +1981,7 @@ export default function Closing() {
         ) : closings.length === 0 ? (
           <div className="p-12 text-center">
             <FileText size={32} className="mx-auto text-gray-300 mb-3" />
-            <p className="text-gray-500 font-medium">No closings yet</p>
+            <p className="text-gray-500 font-medium">No closings found</p>
             <p className="text-gray-400 text-sm mt-1">
               Create a new period closing to get started.
             </p>
@@ -1969,7 +2067,6 @@ export default function Closing() {
                         <span className="text-gray-400 text-xs">—</span>
                       )}
                     </td>
-                    {/* ── Layer 4 refunds column ── */}
                     <td className="table-td">
                       {(c.totalRefunded || 0) > 0 ? (
                         <span className="font-semibold text-rose-500">
@@ -2032,7 +2129,7 @@ export default function Closing() {
                   colSpan={3}
                   className="table-td font-semibold text-gray-600 dark:text-gray-400"
                 >
-                  Grand Total ({closings.length} closing
+                  Page Total ({closings.length} closing
                   {closings.length !== 1 ? "s" : ""})
                 </td>
                 <td className="table-td font-bold text-emerald-600 dark:text-emerald-400">
@@ -2044,7 +2141,6 @@ export default function Closing() {
                 <td className="table-td font-bold text-red-500">
                   {grandDeductions > 0 ? `-${fmt(grandDeductions)}` : "—"}
                 </td>
-                {/* Layer 4 grand total */}
                 <td className="table-td font-bold text-rose-500">
                   {grandRefunded > 0 ? `-${fmt(grandRefunded)}` : "—"}
                 </td>
@@ -2056,6 +2152,13 @@ export default function Closing() {
             </tfoot>
           </table>
         )}
+
+        <Pager
+          page={page}
+          totalPages={totalPages}
+          onPrev={() => setPage((p) => Math.max(1, p - 1))}
+          onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+        />
       </div>
 
       {modal === "create" && (
@@ -2063,6 +2166,26 @@ export default function Closing() {
           onClose={() => setModal(null)}
           branchId={branchId}
           userId={user?.id}
+          onCreated={(newClosing) => {
+            // Prepend the new closing into the current page's cache directly
+            // rather than invalidating and refetching the whole list.
+            qc.setQueryData(queryKey, (old) => {
+              if (!old) return old;
+              const items = old.data?.data?.items || [];
+              return {
+                ...old,
+                data: {
+                  ...old.data,
+                  data: {
+                    ...old.data.data,
+                    items: [newClosing, ...items].slice(0, PAGE_SIZE),
+                    totalCount: (old.data.data.totalCount || 0) + 1,
+                  },
+                },
+              };
+            });
+            qc.invalidateQueries({ queryKey: ["closing-audit-flags"] });
+          }}
         />
       )}
       {selected && detail && !detailLoading && (

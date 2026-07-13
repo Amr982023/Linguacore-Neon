@@ -15,6 +15,44 @@ public class UserRepository : GenericRepository<User>, IUserRepository
             .Include(u => u.Person)
             .FirstOrDefaultAsync(u => u.Email == email);
 
+    public async Task<(IEnumerable<User> Items, int TotalCount)> GetByBranchPagedAsync(
+     Guid branchId,
+     int page,
+     int pageSize,
+     string? search = null,
+     Guid? roleId = null,
+     bool? isActive = null)
+    {
+        var query = _dbSet
+            .Include(u => u.Person)
+            .Include(u => u.Role)
+            .Include(u => u.Branch)
+            .Where(u => u.BranchId == branchId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(u =>
+                EF.Functions.ILike(u.Name, $"%{term}%") ||
+                EF.Functions.ILike(u.Email, $"%{term}%"));
+        }
+
+        if (roleId.HasValue)
+            query = query.Where(u => u.RoleId == roleId.Value);
+
+        if (isActive.HasValue)
+            query = query.Where(u => u.IsActive == isActive.Value);
+
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(u => u.Name)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, total);
+    }
     public async Task<User?> GetWithRoleAsync(Guid id)
         => await _dbSet
             .Include(u => u.Role)

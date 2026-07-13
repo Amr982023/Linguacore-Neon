@@ -486,6 +486,10 @@ export default function Login() {
     queryKey: ["has-users"],
     queryFn: () => authApi.hasUsers(),
     retry: false,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const hasUsers = data?.data?.hasUsers;

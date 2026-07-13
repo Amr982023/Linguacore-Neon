@@ -535,6 +535,10 @@ export default function ResourceScheduler() {
     queryFn: () => lookupsApi.getHalls(branchId),
     select: (r) => r.data?.data || [],
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const { data: zooms = [] } = useQuery({
@@ -542,6 +546,10 @@ export default function ResourceScheduler() {
     queryFn: () => lookupsApi.getZoomAccounts(branchId),
     select: (r) => r.data?.data || [],
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   // Fetch sessions for the selected day
@@ -563,7 +571,10 @@ export default function ResourceScheduler() {
       }),
     select: (r) => r.data?.data?.items || [],
     enabled: !!branchId,
-    refetchInterval: 60_000,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   function sessionsFor(type, resourceId) {

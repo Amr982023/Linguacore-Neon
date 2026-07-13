@@ -9,6 +9,7 @@ using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
 using LinguaCore.Domain.Interfaces;
+using LinguaCore.Application.DTOs.Request.Filters;
 
 namespace LinguaCore.Application.Services;
 
@@ -74,6 +75,20 @@ public class AuthService : IAuthService
             DateTime.UtcNow.AddHours(8)));
     }
 
+
+    public async Task<ApiResponse<PagedResponse<UserListResponse>>> GetByBranchPagedAsync(
+    Guid branchId, UserFilterRequest filter)
+    {
+        var (entries, total) = await _uow.Users.GetByBranchPagedAsync(
+            branchId, filter.Page, filter.PageSize, filter.Search, filter.RoleId, filter.IsActive);
+
+        var items = entries.Select(MapUser).ToList();
+
+        return ApiResponse<PagedResponse<UserListResponse>>.Ok(
+            new PagedResponse<UserListResponse>(
+                items, total, filter.Page, filter.PageSize,
+                (int)Math.Ceiling(total / (double)filter.PageSize)));
+    }
     public async Task<ApiResponse<AuthResponse>> RegisterUserAsync(RegisterUserRequest request)
     {
         if (await _uow.Users.AnyAsync(u => u.Email == request.Email))

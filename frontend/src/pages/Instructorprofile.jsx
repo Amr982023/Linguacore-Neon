@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../context/authStore";
 import {
@@ -7,6 +7,7 @@ import {
   sessionsApi,
   examsApi,
   paymentsApi,
+  lookupsApi,
 } from "../services/endpoints";
 import {
   UserCheck,
@@ -15,6 +16,8 @@ import {
   ClipboardList,
   DollarSign,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Users,
   Clock,
   TrendingUp,
@@ -27,6 +30,18 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
+
+const PAGE_SIZE = 8;
+
+// Applied to every useQuery on this page so data only reloads on a
+// deliberate user action (instructor/tab/page/date-range change) — never
+// from window focus, remount, or reconnect.
+const NO_AUTO_REFETCH = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -110,6 +125,9 @@ const TABS = [
 
 // unwrap { data: [...] } envelope or plain array
 const unwrap = (r) => (Array.isArray(r) ? r : (r?.data ?? []));
+
+// unwrap a PagedResult<T>-shaped envelope: { items, totalCount, page, pageSize, totalPages }
+const unwrapPaged = (r) => r?.data?.data ?? r?.data ?? null;
 
 // ── shared UI ──────────────────────────────────────────────────────────────
 
@@ -200,134 +218,164 @@ function Loader() {
   );
 }
 
+// ── Pagination (compact, shared across all four tabs) ───────────────────────
+function Pagination({ page, totalPages, totalCount, pageSize, onPageChange }) {
+  if (totalCount === 0) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalCount);
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-white/5 text-xs text-gray-500 dark:text-white/30">
+      <span>
+        {from}–{to} of {totalCount}
+      </span>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page === 1}
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-white/50 disabled:opacity-30"
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span className="px-1">
+          Page {page} of {totalPages}
+        </span>
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page === totalPages}
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-white/50 disabled:opacity-30"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Groups tab ─────────────────────────────────────────────────────────────
-// GroupResponse: Id, Name, LanguageName, LevelCode, GroupCategory,
-//   GroupType, DeliveryMode, GroupStatus, EnrolledCount, InstructorId
+// Server-side paginated + filtered by instructorId via GroupFilterRequest
+// (groupsApi.getByBranchPaged already supports InstructorId per its DTO).
 function GroupsTab({ instructorId, branchId }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["groups-branch", branchId],
-    queryFn: () => groupsApi.getByBranch(branchId).then((r) => r.data),
-    enabled: !!branchId,
+  const [page, setPage] = useState(1);
+
+  // Reset to page 1 whenever the selected instructor changes — otherwise you
+  // can land on page 3 of a different instructor's (possibly shorter) list.
+  useEffect(() => {
+    setPage(1);
+  }, [instructorId]);
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["instructor-groups-paged", branchId, instructorId, page],
+    queryFn: () =>
+      groupsApi.getByBranchPaged(branchId, {
+        instructorId,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
+    enabled: !!branchId && !!instructorId,
+    keepPreviousData: true,
+    ...NO_AUTO_REFETCH,
   });
 
-  const groups = useMemo(
-    () => unwrap(data).filter((g) => g.instructorId === instructorId),
-    [data, instructorId],
-  );
-
-  if (isLoading) return <Loader />;
+  const paged = unwrapPaged(data);
+  const groups = paged?.items ?? [];
+  const totalCount = paged?.totalCount ?? 0;
+  const totalPages = paged?.totalPages ?? 1;
 
   return (
-    <TableShell
-      heads={[
-        "Name",
-        "Language",
-        "Level",
-        "Category",
-        "Type",
-        "Mode",
-        "Status",
-        "Enrolled",
-      ]}
-      isEmpty={!groups.length}
-      emptyMsg="No groups assigned to this instructor"
-    >
-      {groups.map((g) => (
-        <tr
-          key={g.id}
-          className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
-        >
-          <Td bold>{g.name}</Td>
-          <Td>{g.languageName}</Td>
-          <Td>{g.levelCode}</Td>
-          <Td>{g.groupCategory}</Td>
-          <Td>{g.groupType}</Td>
-          <Td>{g.deliveryMode}</Td>
-          <td className="px-4 py-3">{statusBadge(g.groupStatus)}</td>
-          <Td>{g.enrolledCount ?? 0}</Td>
-        </tr>
-      ))}
-    </TableShell>
+    <div className={`transition-opacity ${isFetching ? "opacity-60" : ""}`}>
+      <TableShell
+        heads={[
+          "Name",
+          "Language",
+          "Level",
+          "Category",
+          "Type",
+          "Mode",
+          "Status",
+          "Enrolled",
+        ]}
+        isEmpty={!isLoading && !groups.length}
+        emptyMsg="No groups assigned to this instructor"
+        loading={isLoading}
+      >
+        {groups.map((g) => (
+          <tr
+            key={g.id}
+            className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
+          >
+            <Td bold>{g.name}</Td>
+            <Td>{g.languageName}</Td>
+            <Td>{g.levelCode}</Td>
+            <Td>{g.groupCategory}</Td>
+            <Td>{g.groupType}</Td>
+            <Td>{g.deliveryMode}</Td>
+            <td className="px-4 py-3">{statusBadge(g.groupStatus)}</td>
+            <Td>{g.enrolledCount ?? 0}</Td>
+          </tr>
+        ))}
+      </TableShell>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
+    </div>
   );
 }
 
 // ── Sessions tab ───────────────────────────────────────────────────────────
-// SessionResponse: Id, GroupId, GroupName, InstructorId, HallName,
-//   ZoomAccountName, SessionNumber, PeriodLabel, ScheduledDate,
-//   ActualDate, Topic, Status, CancelledReason
+// Server-side paginated + filtered by instructorId directly on the branch
+// endpoint, the same way Sessions.jsx filters by groupId/status/period.
+//
+// ASSUMPTION: sessionsApi.getByBranch's backing SessionFilterRequest accepts
+// an InstructorId param, mirroring how GroupFilterRequest already does. If
+// the backend doesn't support this yet, this tab will need a small filter
+// DTO addition (flagged in chat) before it returns instructor-scoped results.
 function SessionsTab({ instructorId, branchId }) {
-  // We need groups both to filter by instructor AND as a name lookup fallback
-  const { data: groupsData, isLoading: groupsLoading } = useQuery({
-    queryKey: ["groups-branch", branchId],
-    queryFn: () => groupsApi.getByBranch(branchId).then((r) => r.data),
-    enabled: !!branchId,
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [instructorId]);
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["instructor-sessions-paged", branchId, instructorId, page],
+    queryFn: () =>
+      sessionsApi.getByBranch(branchId, {
+        instructorId,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
+    enabled: !!branchId && !!instructorId,
+    keepPreviousData: true,
+    ...NO_AUTO_REFETCH,
   });
 
-  const instructorGroups = useMemo(
-    () => unwrap(groupsData).filter((g) => g.instructorId === instructorId),
-    [groupsData, instructorId],
-  );
-
-  // Build a quick id→name map so we can fill in groupName when it's blank
-  const groupNameById = useMemo(() => {
-    const map = {};
-    unwrap(groupsData).forEach((g) => {
-      map[g.id] = g.name;
-    });
-    return map;
-  }, [groupsData]);
-
-  const { data: sessionsData, isLoading: sessionsLoading } = useQuery({
-    queryKey: [
-      "instructor-sessions",
-      instructorId,
-      instructorGroups.map((g) => g.id).join(","),
-    ],
-    queryFn: async () => {
-      const results = await Promise.all(
-        instructorGroups.map((g) =>
-          sessionsApi.getByGroup(g.id).then((r) => unwrap(r.data)),
-        ),
-      );
-      return results.flat();
-    },
-    enabled: instructorGroups.length > 0,
-  });
-
-  const sessions = useMemo(
-    () =>
-      [...(sessionsData ?? [])].sort(
-        (a, b) => new Date(b.scheduledDate) - new Date(a.scheduledDate),
-      ),
-    [sessionsData],
-  );
-
-  const loading = groupsLoading || sessionsLoading;
+  const paged = unwrapPaged(data);
+  const sessions = paged?.items ?? [];
+  const totalCount = paged?.totalCount ?? 0;
+  const totalPages = paged?.totalPages ?? 1;
 
   return (
-    <TableShell
-      heads={[
-        "#",
-        "Date",
-        "Time",
-        "Group",
-        "Period",
-        "Hall / Zoom",
-        "Topic",
-        "Status",
-      ]}
-      isEmpty={!loading && !sessions.length}
-      emptyMsg="No sessions found for this instructor"
-      loading={loading}
-    >
-      {sessions.map((s) => {
-        // GroupName comes from SessionResponse; fall back to our map if empty
-        const grpName =
-          s.groupName && s.groupName.trim()
-            ? s.groupName
-            : (groupNameById[s.groupId] ?? "—");
-
-        return (
+    <div className={`transition-opacity ${isFetching ? "opacity-60" : ""}`}>
+      <TableShell
+        heads={[
+          "#",
+          "Date",
+          "Time",
+          "Group",
+          "Period",
+          "Hall / Zoom",
+          "Topic",
+          "Status",
+        ]}
+        isEmpty={!isLoading && !sessions.length}
+        emptyMsg="No sessions found for this instructor"
+        loading={isLoading}
+      >
+        {sessions.map((s) => (
           <tr
             key={s.id}
             className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
@@ -335,10 +383,8 @@ function SessionsTab({ instructorId, branchId }) {
             <Td>{s.sessionNumber}</Td>
             <Td>{fmtDate(s.scheduledDate)}</Td>
             <Td>{fmtTime(s.scheduledDate)}</Td>
-            <Td bold>{grpName}</Td>
-            {/* PeriodLabel is a plain string on SessionResponse */}
+            <Td bold>{s.groupName || "—"}</Td>
             <Td>{s.periodLabel}</Td>
-            {/* HallName and ZoomAccountName are both nullable; show whichever is set */}
             <td className="px-4 py-3 text-gray-500 dark:text-white/40">
               {s.hallName ? (
                 s.hallName
@@ -351,125 +397,151 @@ function SessionsTab({ instructorId, branchId }) {
             <Td>{s.topic}</Td>
             <td className="px-4 py-3">{statusBadge(s.status)}</td>
           </tr>
-        );
-      })}
-    </TableShell>
+        ))}
+      </TableShell>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
+    </div>
   );
 }
 
 // ── Exams tab ──────────────────────────────────────────────────────────────
-// ExamResponse: Id, GroupId, GroupName, LanguageName, LevelCode,
-//   IsFinalExam, Title, TotalMarks, PassPercentage,
-//   ExamDate, DurationMins, IsCustom, CreatedAt, ModifiedAt
+// Server-side paginated + filtered by instructorId directly on the branch
+// endpoint (examsApi.getByBranch). Same assumption/flag as SessionsTab above
+// regarding backend filter support for InstructorId.
 function ExamsTab({ instructorId, branchId }) {
-  const { data: groupsData, isLoading: groupsLoading } = useQuery({
-    queryKey: ["groups-branch", branchId],
-    queryFn: () => groupsApi.getByBranch(branchId).then((r) => r.data),
-    enabled: !!branchId,
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [instructorId]);
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["instructor-exams-paged", branchId, instructorId, page],
+    queryFn: () =>
+      examsApi.getByBranch(branchId, {
+        instructorId,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
+    enabled: !!branchId && !!instructorId,
+    keepPreviousData: true,
+    ...NO_AUTO_REFETCH,
   });
 
-  const instructorGroups = useMemo(
-    () => unwrap(groupsData).filter((g) => g.instructorId === instructorId),
-    [groupsData, instructorId],
-  );
-
-  const { data: examsData, isLoading: examsLoading } = useQuery({
-    queryKey: [
-      "instructor-exams",
-      instructorId,
-      instructorGroups.map((g) => g.id).join(","),
-    ],
-    queryFn: async () => {
-      const results = await Promise.all(
-        instructorGroups.map((g) =>
-          examsApi.getByGroup(g.id).then((r) => unwrap(r.data)),
-        ),
-      );
-      return results.flat();
-    },
-    enabled: instructorGroups.length > 0,
-  });
-
-  const exams = examsData ?? [];
-  const loading = groupsLoading || examsLoading;
+  const paged = unwrapPaged(data);
+  const exams = paged?.items ?? [];
+  const totalCount = paged?.totalCount ?? 0;
+  const totalPages = paged?.totalPages ?? 1;
 
   return (
-    <TableShell
-      heads={[
-        "Title",
-        "Group",
-        "Language",
-        "Level",
-        "Date",
-        "Duration",
-        "Total Marks",
-        "Pass %",
-        "Final",
-        "Custom",
-      ]}
-      isEmpty={!loading && !exams.length}
-      emptyMsg="No exams found for this instructor"
-      loading={loading}
-    >
-      {exams.map((e) => (
-        <tr
-          key={e.id}
-          className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
-        >
-          <Td bold>{e.title}</Td>
-          <Td>{e.groupName}</Td>
-          <Td>{e.languageName}</Td>
-          <Td>{e.levelCode}</Td>
-          <Td>{fmtDate(e.examDate)}</Td>
-          <Td>{e.durationMins != null ? `${e.durationMins} min` : null}</Td>
-          <Td>{e.totalMarks != null ? e.totalMarks : null}</Td>
-          <Td>{e.passPercentage != null ? `${e.passPercentage}%` : null}</Td>
-          <td className="px-4 py-3">
-            {e.isFinalExam ? (
-              <CheckCircle2 size={16} className="text-emerald-500" />
-            ) : (
-              <XCircle size={16} className="text-gray-300 dark:text-white/20" />
-            )}
-          </td>
-          <td className="px-4 py-3">
-            {e.isCustom ? (
-              <CheckCircle2 size={16} className="text-blue-500" />
-            ) : (
-              <XCircle size={16} className="text-gray-300 dark:text-white/20" />
-            )}
-          </td>
-        </tr>
-      ))}
-    </TableShell>
+    <div className={`transition-opacity ${isFetching ? "opacity-60" : ""}`}>
+      <TableShell
+        heads={[
+          "Title",
+          "Group",
+          "Language",
+          "Level",
+          "Date",
+          "Duration",
+          "Total Marks",
+          "Pass %",
+          "Final",
+          "Custom",
+        ]}
+        isEmpty={!isLoading && !exams.length}
+        emptyMsg="No exams found for this instructor"
+        loading={isLoading}
+      >
+        {exams.map((e) => (
+          <tr
+            key={e.id}
+            className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
+          >
+            <Td bold>{e.title}</Td>
+            <Td>{e.groupName}</Td>
+            <Td>{e.languageName}</Td>
+            <Td>{e.levelCode}</Td>
+            <Td>{fmtDate(e.examDate)}</Td>
+            <Td>{e.durationMins != null ? `${e.durationMins} min` : null}</Td>
+            <Td>{e.totalMarks != null ? e.totalMarks : null}</Td>
+            <Td>{e.passPercentage != null ? `${e.passPercentage}%` : null}</Td>
+            <td className="px-4 py-3">
+              {e.isFinalExam ? (
+                <CheckCircle2 size={16} className="text-emerald-500" />
+              ) : (
+                <XCircle
+                  size={16}
+                  className="text-gray-300 dark:text-white/20"
+                />
+              )}
+            </td>
+            <td className="px-4 py-3">
+              {e.isCustom ? (
+                <CheckCircle2 size={16} className="text-blue-500" />
+              ) : (
+                <XCircle
+                  size={16}
+                  className="text-gray-300 dark:text-white/20"
+                />
+              )}
+            </td>
+          </tr>
+        ))}
+      </TableShell>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
+    </div>
   );
 }
 
 // ── Commission tab ─────────────────────────────────────────────────────────
-// CommissionLedgerResponse: Id, InstructorName, GroupName, PaymentStrategy,
-//   CommissionPct, GrossPayment, CommissionAmount, CentreAmount,
-//   PeriodLabelName, IsAdjustment, CreatedAt
-// NOTE: CommissionPct is already a plain percentage (e.g. 30 = 30%)
+// Server-side paginated via paymentsApi.getCommissionPaged.
+// NOTE: "Total" below sums only the currently visible page — the paged
+// commission endpoint doesn't (yet) return a full-range aggregate the way
+// CenterDeductionPagedResponse does for deductions. Labeled accordingly.
 function CommissionTab({ instructorId }) {
   const today = new Date();
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   const [from, setFrom] = useState(firstOfMonth.toISOString().slice(0, 10));
   const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["commission", instructorId, from, to],
-    queryFn: () =>
-      paymentsApi
-        .getCommission(
-          instructorId,
-          new Date(from).toISOString(),
-          new Date(to + "T23:59:59").toISOString(),
-        )
-        .then((r) => unwrap(r.data)),
+  // Reset to page 1 whenever the instructor or date range changes.
+  useEffect(() => {
+    setPage(1);
+  }, [instructorId, from, to]);
+
+  const filter = {
+    from: new Date(from).toISOString(),
+    to: new Date(to + "T23:59:59").toISOString(),
+    page,
+    pageSize: PAGE_SIZE,
+  };
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["commission-paged", instructorId, from, to, page],
+    queryFn: () => paymentsApi.getCommissionPaged(instructorId, filter),
     enabled: !!instructorId,
+    keepPreviousData: true,
+    ...NO_AUTO_REFETCH,
   });
 
-  const entries = data ?? [];
-  const total = entries.reduce((s, e) => s + (e.commissionAmount ?? 0), 0);
+  const paged = unwrapPaged(data);
+  const entries = paged?.items ?? [];
+  const totalCount = paged?.totalCount ?? 0;
+  const totalPages = paged?.totalPages ?? 1;
+  const pageTotal = entries.reduce((s, e) => s + (e.commissionAmount ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -512,56 +584,63 @@ function CommissionTab({ instructorId }) {
             className="text-[#0055cc] dark:text-[#00d4ff]"
           />
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#0055cc] dark:text-[#00d4ff]">
-            Total: {fmt(total)}
+            Total (this page): {fmt(pageTotal)}
           </span>
         </div>
       </div>
 
-      <TableShell
-        heads={[
-          "Date",
-          "Group",
-          "Period",
-          "Strategy",
-          "Gross",
-          "Commission %",
-          "Commission",
-          "Centre",
-          "Adjustment",
-        ]}
-        isEmpty={!isLoading && !entries.length}
-        emptyMsg="No commission records in this period"
-        loading={isLoading}
-      >
-        {entries.map((e, i) => (
-          <tr
-            key={e.id ?? i}
-            className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
-          >
-            <Td>{fmtDate(e.createdAt)}</Td>
-            <Td bold>{e.groupName}</Td>
-            {/* CommissionLedger stores period as a plain string field called PeriodLabel */}
-            <Td>{e.periodLabel ?? e.periodLabelName}</Td>
-            <Td>{e.paymentStrategy}</Td>
-            <Td>{fmt(e.grossPayment)}</Td>
-            {/* commissionPct is already a plain % value e.g. 30 → "30%" */}
-            <Td>{e.commissionPct != null ? `${e.commissionPct}%` : "—"}</Td>
-            <td className="px-4 py-3 font-semibold text-gray-800 dark:text-white/80">
-              {fmt(e.commissionAmount)}
-            </td>
-            <Td>{fmt(e.centreAmount)}</Td>
-            <td className="px-4 py-3">
-              {e.isAdjustment ? (
-                <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  Adjustment
-                </span>
-              ) : (
-                <span className="text-gray-300 dark:text-white/20">—</span>
-              )}
-            </td>
-          </tr>
-        ))}
-      </TableShell>
+      <div className={`transition-opacity ${isFetching ? "opacity-60" : ""}`}>
+        <TableShell
+          heads={[
+            "Date",
+            "Group",
+            "Period",
+            "Strategy",
+            "Gross",
+            "Commission %",
+            "Commission",
+            "Centre",
+            "Adjustment",
+          ]}
+          isEmpty={!isLoading && !entries.length}
+          emptyMsg="No commission records in this period"
+          loading={isLoading}
+        >
+          {entries.map((e, i) => (
+            <tr
+              key={e.id ?? i}
+              className="border-b border-gray-50 dark:border-white/[0.03] hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
+            >
+              <Td>{fmtDate(e.createdAt)}</Td>
+              <Td bold>{e.groupName}</Td>
+              <Td>{e.periodLabel ?? e.periodLabelName}</Td>
+              <Td>{e.paymentStrategy}</Td>
+              <Td>{fmt(e.grossPayment)}</Td>
+              <Td>{e.commissionPct != null ? `${e.commissionPct}%` : "—"}</Td>
+              <td className="px-4 py-3 font-semibold text-gray-800 dark:text-white/80">
+                {fmt(e.commissionAmount)}
+              </td>
+              <Td>{fmt(e.centreAmount)}</Td>
+              <td className="px-4 py-3">
+                {e.isAdjustment ? (
+                  <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    Adjustment
+                  </span>
+                ) : (
+                  <span className="text-gray-300 dark:text-white/20">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </TableShell>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
+      </div>
     </div>
   );
 }
@@ -578,25 +657,57 @@ export default function InstructorProfile() {
     queryKey: ["instructors-branch", branchId],
     queryFn: () => instructorsApi.getByBranch(branchId).then((r) => r.data),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
   const instructors = unwrap(instructorsData);
   const selected = instructors.find((i) => i.id === selectedId);
 
-  const { data: groupsData } = useQuery({
-    queryKey: ["groups-branch", branchId],
-    queryFn: () => groupsApi.getByBranch(branchId).then((r) => r.data),
+  // ── Lightweight counts for the stat cards ─────────────────────────────────
+  // Instead of loading every group for this instructor just to count them,
+  // ask the paged endpoint for pageSize=1 and read totalCount — one cheap
+  // aggregate query per stat instead of a full unbounded list load.
+  const { data: groupStatusesRes } = useQuery({
+    queryKey: ["group-statuses"],
+    queryFn: () => lookupsApi.getGroupStatuses(),
+    ...NO_AUTO_REFETCH,
+  });
+  const activeStatusId = (groupStatusesRes?.data?.data || []).find(
+    (s) => (s.name || "").toUpperCase() === "ACTIVE",
+  )?.id;
+
+  const { data: totalGroupsRes } = useQuery({
+    queryKey: ["instructor-groups-count", branchId, selectedId],
+    queryFn: () =>
+      groupsApi.getByBranchPaged(branchId, {
+        instructorId: selectedId,
+        page: 1,
+        pageSize: 1,
+      }),
     enabled: !!branchId && !!selectedId,
+    ...NO_AUTO_REFETCH,
   });
 
-  const instructorGroups = useMemo(
-    () => unwrap(groupsData).filter((g) => g.instructorId === selectedId),
-    [groupsData, selectedId],
-  );
+  const { data: activeGroupsRes } = useQuery({
+    queryKey: [
+      "instructor-active-groups-count",
+      branchId,
+      selectedId,
+      activeStatusId,
+    ],
+    queryFn: () =>
+      groupsApi.getByBranchPaged(branchId, {
+        instructorId: selectedId,
+        groupStatusId: activeStatusId,
+        page: 1,
+        pageSize: 1,
+      }),
+    enabled: !!branchId && !!selectedId && !!activeStatusId,
+    ...NO_AUTO_REFETCH,
+  });
 
-  const activeGroups = instructorGroups.filter(
-    (g) => (g.groupStatus ?? "").toLowerCase() === "active",
-  ).length;
+  const totalGroups = unwrapPaged(totalGroupsRes)?.totalCount ?? 0;
+  const activeGroups = unwrapPaged(activeGroupsRes)?.totalCount ?? 0;
 
   const languagesLabel = selected?.languages?.length
     ? selected.languages.join(", ")
@@ -721,7 +832,7 @@ export default function InstructorProfile() {
             <StatCard
               icon={BookOpen}
               label="Total Groups"
-              value={instructorGroups.length}
+              value={totalGroups}
               accent="linear-gradient(135deg,#00d4ff,#0055cc)"
             />
             <StatCard

@@ -264,6 +264,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<GenericClosing>()
             .HasOne(c => c.ConfirmedByUser).WithMany()
             .HasForeignKey(c => c.ConfirmedBy).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GenericClosing>()
+            .HasIndex(c => new { c.BranchId, c.Status });
 
         // GenericClosingInstructor
         modelBuilder.Entity<GenericClosingInstructor>()
@@ -538,6 +540,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<User>()
             .HasOne(u => u.Role).WithMany(r => r.Users)
             .HasForeignKey(u => u.RoleId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<User>()
+    .HasIndex(u => new { u.BranchId, u.IsActive });
 
         // InstructorLanguage
         modelBuilder.Entity<InstructorLanguage>()

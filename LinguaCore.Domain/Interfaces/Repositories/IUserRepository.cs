@@ -10,4 +10,11 @@ public interface IUserRepository : IGenericRepository<User>
     Task<List<User>> GetAllWithRoleAndBranchAsync();
     Task<List<User>> GetAllWithDetailsAsync();
     Task<User?>      GetWithDetailsAsync(Guid id);
+    Task<(IEnumerable<User> Items, int TotalCount)> GetByBranchPagedAsync(
+    Guid branchId,
+    int page,
+    int pageSize,
+    string? search = null,
+    Guid? roleId = null,
+    bool? isActive = null);
 }

@@ -4,6 +4,7 @@ using LinguaCore.Application.DTOs.Request;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Enums;
 using System.Security.Claims;
+using LinguaCore.Application.DTOs.Request.Filters;
 
 namespace LinguaCore.API.Controllers;
 
@@ -24,6 +25,14 @@ public class ClosingController : ControllerBase
         var safeReq = req with { CreatedBy = userId };
         var result = await _service.CreateGenericClosingAsync(safeReq);
         return result.Success ? Ok(result) : BadRequest(result);
+    }
+
+    [HttpGet("branch/{branchId:guid}/paged")]
+    [Authorize(Policy = PermissionPolicies.ClosingsRead)]
+    public async Task<IActionResult> GetByBranchPaged(Guid branchId, [FromQuery] ClosingFilterRequest filter)
+    {
+        var result = await _service.GetByBranchPagedAsync(branchId, filter);
+        return Ok(result);
     }
 
     [HttpPost("confirm")]

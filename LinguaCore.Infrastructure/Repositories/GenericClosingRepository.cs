@@ -28,6 +28,34 @@ public class GenericClosingRepository : GenericRepository<GenericClosing>, IGene
         .ToListAsync();
 
 
+    public async Task<(IEnumerable<GenericClosing> Items, int TotalCount)> GetByBranchPagedAsync(
+    Guid branchId, int page, int pageSize, string? status = null)
+    {
+        var query = _dbSet
+            .Include(c => c.Branch)
+            .Include(c => c.CreatedByUser).ThenInclude(u => u.Person)
+            .Include(c => c.ConfirmedByUser).ThenInclude(u => u!.Person)
+            .Include(c => c.CenterDeductions)
+            .Include(c => c.InstructorRows)
+                .ThenInclude(ir => ir.Details)
+            .Where(c => c.BranchId == branchId)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(c => c.Status == status.ToUpper());
+
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(c => c.PeriodStart)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+
     public async Task<IEnumerable<GenericClosing>> GetByBranchAsync(Guid branchId)
         => await _dbSet
             .Include(c => c.Branch)

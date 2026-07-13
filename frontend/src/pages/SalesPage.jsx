@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Receipt,
   Filter,
+  LayoutGrid,
   Candy,
   Coffee,
   Cookie,
@@ -71,6 +72,59 @@ function StatCard({ icon: Icon, label, total, count, gradient }) {
         {count} sale{count !== 1 ? "s" : ""}
       </p>
     </div>
+  );
+}
+
+function AllCategoriesTile({ active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`relative flex-shrink-0 w-24 rounded-xl overflow-hidden group transition-all duration-200
+        ${active ? "ring-2 ring-blue-500 scale-[1.02]" : "ring-1 ring-gray-200 dark:ring-white/10 hover:scale-[1.02]"}`}
+    >
+      <div
+        className="h-16 w-full flex items-center justify-center relative"
+        style={{ background: "linear-gradient(135deg, #64748b, #334155)" }}
+      >
+        <LayoutGrid size={22} className="text-white/90" />
+        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors" />
+      </div>
+      <div className="bg-white dark:bg-[#161616] px-1.5 py-1.5">
+        <p className="text-[11px] font-semibold text-gray-800 dark:text-white/80 truncate text-center">
+          All
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function SalesCategoryTile({ category, active, onClick }) {
+  const Icon = ICONS[category.iconKey] ?? ICONS.default;
+  return (
+    <button
+      onClick={onClick}
+      className={`relative flex-shrink-0 w-24 rounded-xl overflow-hidden group transition-all duration-200
+        ${active ? "ring-2 ring-blue-500 scale-[1.02]" : "ring-1 ring-gray-200 dark:ring-white/10 hover:scale-[1.02]"}`}
+    >
+      <div
+        className="h-16 w-full flex items-center justify-center relative"
+        style={{
+          background: category.customImageUrl
+            ? `url(${category.customImageUrl}) center/cover`
+            : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        }}
+      >
+        {!category.customImageUrl && (
+          <Icon size={22} className="text-white/90" />
+        )}
+        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors" />
+      </div>
+      <div className="bg-white dark:bg-[#161616] px-1.5 py-1.5">
+        <p className="text-[11px] font-semibold text-gray-800 dark:text-white/80 truncate text-center">
+          {category.name}
+        </p>
+      </div>
+    </button>
   );
 }
 
@@ -260,27 +314,20 @@ export default function SalesPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-none">
-            <button
+          {/* Category selector — image tiles, same visual language as the Store page */}
+          <div className="flex gap-2.5 overflow-x-auto pb-2 mb-4 scrollbar-none">
+            <AllCategoriesTile
+              active={!selectedCategory}
               onClick={() => setSelectedCategory(null)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors
-                ${!selectedCategory ? "bg-blue-500 text-white" : "bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/40"}`}
-            >
-              All
-            </button>
-            {categories.map((c) => {
-              const Icon = ICONS[c.iconKey] ?? ICONS.default;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedCategory(c.id)}
-                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors
-                    ${selectedCategory === c.id ? "bg-blue-500 text-white" : "bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/40"}`}
-                >
-                  <Icon size={13} /> {c.name}
-                </button>
-              );
-            })}
+            />
+            {categories.map((c) => (
+              <SalesCategoryTile
+                key={c.id}
+                category={c}
+                active={selectedCategory === c.id}
+                onClick={() => setSelectedCategory(c.id)}
+              />
+            ))}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

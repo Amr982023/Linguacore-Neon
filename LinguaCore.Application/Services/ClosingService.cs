@@ -1,4 +1,5 @@
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
@@ -34,7 +35,18 @@ public class ClosingService : IClosingService
     public ClosingService(IUnitOfWork uow) => _uow = uow;
 
     // ── Helpers ───────────────────────────────────────────────────────────
+    public async Task<ApiResponse<PagedResponse<GenericClosingSummaryResponse>>> GetByBranchPagedAsync(
+    Guid branchId, ClosingFilterRequest filter)
+    {
+        var (entries, total) = await _uow.GenericClosings.GetByBranchPagedAsync(
+            branchId, filter.Page, filter.PageSize, filter.Status);
 
+        var items = entries.Select(MapToSummary).ToList();
+
+        return Ok(new PagedResponse<GenericClosingSummaryResponse>(
+            items, total, filter.Page, filter.PageSize,
+            (int)Math.Ceiling(total / (double)filter.PageSize)));
+    }
     private static void RecalculateCenterTotals(GenericClosing closing)
     {
         var grandGross = closing.InstructorRows.Sum(ir => ir.TotalGross);

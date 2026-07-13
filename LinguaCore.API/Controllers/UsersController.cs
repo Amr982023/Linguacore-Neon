@@ -4,6 +4,7 @@ using LinguaCore.Application.DTOs.Request;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Enums;
 using System.Security.Claims;
+using LinguaCore.Application.DTOs.Request.Filters;
 
 namespace LinguaCore.API.Controllers;
 
@@ -36,6 +37,12 @@ public class UsersController : ControllerBase
         var result = await _auth.GetUserByIdAsync(id);
         return result.Success ? Ok(result) : NotFound(result);
     }
+
+    /// <summary>Paged, branch-scoped, filterable user list — used by Branch Overview.</summary>
+    [HttpGet("branch/{branchId:guid}/paged")]
+    [Authorize(Policy = PermissionPolicies.UsersManage)]
+    public async Task<IActionResult> GetByBranchPaged(Guid branchId, [FromQuery] UserFilterRequest filter)
+        => Ok(await _auth.GetByBranchPagedAsync(branchId, filter));
 
     /// <summary>Create a new user — Super Admin only.</summary>
     [HttpPost]

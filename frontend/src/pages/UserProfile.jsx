@@ -237,16 +237,28 @@ export default function UserProfile() {
     queryKey: ["user", id],
     queryFn: () => usersApi.getById(id),
     enabled: !!id,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
   const { data: branchRes } = useQuery({
     queryKey: ["branches"],
     queryFn: lookupsApi.getBranches,
     enabled: isSuperAdmin,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
   const { data: rolesRes } = useQuery({
     queryKey: ["roles"],
     queryFn: lookupsApi.getRoles,
     enabled: isSuperAdmin,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const user = userRes?.data?.data;

@@ -1,4 +1,5 @@
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Domain.Entities;
 
@@ -11,7 +12,8 @@ namespace LinguaCore.Application.Interfaces.Services;
 /// </summary>
 public interface IClosingService
 {
-
+    Task<ApiResponse<PagedResponse<GenericClosingSummaryResponse>>> GetByBranchPagedAsync(
+    Guid branchId, ClosingFilterRequest filter);
     Task<ApiResponse<GenericClosingResponse>> AddInstructorBonusAsync(Guid closingId, AddInstructorBonusRequest req);
     Task<ApiResponse<GenericClosingResponse>> RemoveInstructorBonusAsync(Guid closingId, RemoveInstructorBonusRequest req);
     Task<ApiResponse<GenericClosingResponse>> AddInstructorSalaryDeductionAsync(Guid closingId, AddInstructorSalaryDeductionRequest req);

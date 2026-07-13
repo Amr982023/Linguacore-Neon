@@ -24,7 +24,8 @@ export const studentsApi = {
 
 export const instructorsApi = {
   // getByBranch: (branchId) => api.get(`/instructors/branch/${branchId}`),
-  getByBranch: (branchId, params) => api.get(`/instructors/branch/${branchId}`, { params }),
+  getByBranch: (branchId, params) =>
+    api.get(`/instructors/branch/${branchId}`, { params }),
   getById: (id) => api.get(`/instructors/${id}`),
   getByLanguage: (languageId) => api.get(`/instructors/language/${languageId}`),
   create: (data) => api.post("/instructors", data),
@@ -88,16 +89,21 @@ export const sessionsApi = {
 export const examsApi = {
   getByGroup: (groupId) => api.get(`/exams/group/${groupId}`),
   getResults: (examId) => api.get(`/exams/${examId}/results`),
-  getResultsByStudent: (studentId) => api.get(`/exams/student/${studentId}/results`),
+  getResultsByStudent: (studentId) =>
+    api.get(`/exams/student/${studentId}/results`),
   getRanking: (groupId) => api.get(`/exams/group/${groupId}/ranking`), // unchanged, used by ExamDetail
   create: (data) => api.post("/exams", data),
   addResult: (data) => api.post("/exams/result", data),
-  issueCertificate: (examResultId) => api.post(`/exams/${examResultId}/certificate`),
+  issueCertificate: (examResultId) =>
+    api.post(`/exams/${examResultId}/certificate`),
   update: (data) => api.put("/exams", data),
   // NEW:
-  getByBranch: (branchId, params) => api.get(`/exams/branch/${branchId}`, { params }),
-  getOptions: (branchId, params) => api.get(`/exams/branch/${branchId}/options`, { params }),
-  getRankingByBranch: (branchId, params) => api.get(`/exams/branch/${branchId}/ranking`, { params }),
+  getByBranch: (branchId, params) =>
+    api.get(`/exams/branch/${branchId}`, { params }),
+  getOptions: (branchId, params) =>
+    api.get(`/exams/branch/${branchId}/options`, { params }),
+  getRankingByBranch: (branchId, params) =>
+    api.get(`/exams/branch/${branchId}/ranking`, { params }),
 };
 
 export const certificatesApi = {
@@ -144,6 +150,8 @@ export const paymentsApi = {
 
 export const usersApi = {
   getAll: () => api.get("/users"),
+  getByBranchPaged: (branchId, filter) =>
+    api.get(`/users/branch/${branchId}/paged`, { params: filter }),
   getById: (id) => api.get(`/users/${id}`),
   create: (data) => api.post("/users", data),
   update: (id, data) => api.put(`/users/${id}`, data),
@@ -158,6 +166,8 @@ export const closingApi = {
   markPaid: (data) => api.post("/closing/paid", data),
   getDetails: (id) => api.get(`/closing/${id}`),
   getByBranch: (branchId) => api.get(`/closing/branch/${branchId}`),
+  getByBranchPaged: (branchId, filter) =>
+    api.get(`/closing/branch/${branchId}/paged`, { params: filter }),
   addCenterDeduction: (closingId, data) =>
     api.post(`/closing/${closingId}/center-deductions`, data),
   removeCenterDeduction: (closingId, deductionId) =>

@@ -131,15 +131,20 @@ function EnrollmentDrawer({ enrollment: e, open, onClose }) {
   if (!e) return null;
 
   const statusConfig = {
-    ACTIVE:    { bg: "#dcfce7", color: "#15803d" },
+    ACTIVE: { bg: "#dcfce7", color: "#15803d" },
     COMPLETED: { bg: "#dbeafe", color: "#1d4ed8" },
     SUSPENDED: { bg: "#fee2e2", color: "#b91c1c" },
-    PENDING:   { bg: "#fef9c3", color: "#a16207" },
+    PENDING: { bg: "#fef9c3", color: "#a16207" },
   };
   const s = statusConfig[e.status] || { bg: "#f3f4f6", color: "#4b5563" };
 
   return (
-    <DetailDrawer open={open} onClose={onClose} title="Enrollment Details" icon={BookOpen}>
+    <DetailDrawer
+      open={open}
+      onClose={onClose}
+      title="Enrollment Details"
+      icon={BookOpen}
+    >
       <DRow icon={Layers} label="Group" value={e.groupName} />
       <DRow icon={BookOpen} label="Language" value={e.languageName} />
       <DRow icon={GraduationCap} label="Level" value={e.levelCode} />
@@ -147,8 +152,10 @@ function EnrollmentDrawer({ enrollment: e, open, onClose }) {
         icon={CheckCircle2}
         label="Status"
         value={
-          <span style={{ backgroundColor: s.bg, color: s.color }}
-            className="text-[10px] px-2 py-0.5 rounded-full font-bold">
+          <span
+            style={{ backgroundColor: s.bg, color: s.color }}
+            className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+          >
             {e.status}
           </span>
         }
@@ -283,6 +290,10 @@ export default function StudentPortfolio() {
     queryFn: () => studentsApi.getById(studentId),
     select: (r) => r.data?.data,
     enabled: !!studentId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const { data: enrollments = [] } = useQuery({
@@ -290,6 +301,10 @@ export default function StudentPortfolio() {
     queryFn: () => enrollmentsApi.getByStudent(studentId),
     select: (r) => r.data?.data || [],
     enabled: !!studentId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const { data: examResults = [] } = useQuery({
@@ -297,6 +312,10 @@ export default function StudentPortfolio() {
     queryFn: () => examsApi.getResultsByStudent(studentId),
     select: (r) => r.data?.data || [],
     enabled: !!studentId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   // ── Loading ──

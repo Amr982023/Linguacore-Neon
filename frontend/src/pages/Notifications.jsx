@@ -8,7 +8,7 @@ import {
   studentsApi,
   enrollmentsApi,
 } from "../services/endpoints";
-import { Bell, Send, Users, User, BookOpen, Search, X } from "lucide-react";
+import { Send, Users, User, BookOpen, Search, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 // ── Globe icon ────────────────────────────────────────────────────────────────
@@ -295,7 +295,6 @@ function StudentPickerModal({
 
 export default function Notifications() {
   const { branchId } = useAuthStore();
-  const [tab, setTab] = useState("custom");
   const [showStudentModal, setShowStudentModal] = useState(false);
 
   const [customForm, setCustomForm] = useState({
@@ -367,13 +366,6 @@ export default function Notifications() {
     },
   });
 
-  const { data: logs = [], isLoading: logsLoading } = useQuery({
-    queryKey: ["notifLogs", branchId],
-    queryFn: () => notificationsApi.getLogs(branchId),
-    enabled: !!branchId && tab === "logs",
-    select: (r) => r.data?.data || [],
-  });
-
   const canSend =
     customForm.message.trim().length > 0 &&
     (customForm.sendTo !== "group" || !!customForm.groupId) &&
@@ -396,213 +388,154 @@ export default function Notifications() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 w-fit">
-        {[
-          { id: "custom", label: "Custom Notification", icon: Send },
-          { id: "logs", label: "Log", icon: Bell },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.id
-                ? "bg-white text-[#1A3C6E] shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            <t.icon size={15} /> {t.label}
-          </button>
-        ))}
-      </div>
-
       {/* ── Custom Notification ── */}
-      {tab === "custom" && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">
-            Send Custom Notification
-          </h3>
-          <div className="space-y-4">
-            {/* Message */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Message *
-              </label>
-              <textarea
-                rows={4}
-                value={customForm.message}
-                onChange={(e) =>
-                  setCustomForm((f) => ({ ...f, message: e.target.value }))
-                }
-                placeholder="Write your notification message…"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1A3C6E] resize-none"
-              />
-            </div>
-
-            {/* Send To */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">
-                Send To
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { v: "all", label: "All Students", icon: Users },
-                  { v: "group", label: "Specific Group", icon: BookOpen },
-                  { v: "language", label: "By Language", icon: Globe },
-                  { v: "specific", label: "Specific Students", icon: User },
-                ].map((opt) => (
-                  <button
-                    key={opt.v}
-                    onClick={() =>
-                      setCustomForm((f) => ({ ...f, sendTo: opt.v }))
-                    }
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      customForm.sendTo === opt.v
-                        ? "bg-[#1A3C6E] text-white border-[#1A3C6E]"
-                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    <opt.icon size={14} /> {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Group picker */}
-            {customForm.sendTo === "group" && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Group *
-                </label>
-                <select
-                  value={customForm.groupId}
-                  onChange={(e) =>
-                    setCustomForm((f) => ({ ...f, groupId: e.target.value }))
-                  }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1A3C6E]"
-                >
-                  <option value="">-- Select Group --</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Language picker */}
-            {customForm.sendTo === "language" && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Language *
-                </label>
-                <select
-                  value={customForm.languageId}
-                  onChange={(e) =>
-                    setCustomForm((f) => ({ ...f, languageId: e.target.value }))
-                  }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1A3C6E]"
-                >
-                  <option value="">-- Select Language --</option>
-                  {languages.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Specific Students */}
-            {customForm.sendTo === "specific" && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-2">
-                  Students *
-                </label>
-
-                {/* Selected chips */}
-                {customForm.selectedStudents.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {customForm.selectedStudents.map((s) => (
-                      <span
-                        key={s.id}
-                        className="inline-flex items-center gap-1 bg-[#EEF3FA] text-[#1A3C6E] text-xs px-2.5 py-1 rounded-full font-medium"
-                      >
-                        {s.person?.firstName} {s.person?.lastName}
-                        <button
-                          onClick={() => removeStudent(s.id)}
-                          className="hover:opacity-60 ml-0.5"
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Open modal button */}
-                <button
-                  onClick={() => setShowStudentModal(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-[#1A3C6E] hover:text-[#1A3C6E] hover:bg-[#EEF3FA] transition-colors w-full justify-center"
-                >
-                  <Users size={15} />
-                  {customForm.selectedStudents.length > 0
-                    ? `${customForm.selectedStudents.length} selected — click to change`
-                    : "Browse & select students"}
-                </button>
-              </div>
-            )}
-
-            {/* Send button */}
-            <button
-              onClick={() => sendCustom.mutate()}
-              disabled={!canSend || sendCustom.isPending}
-              className="flex items-center gap-2 bg-[#1A3C6E] text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-[#2E7DBF] disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Send size={15} />
-              {sendCustom.isPending ? "Sending…" : "Send Notification"}
-            </button>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="font-semibold text-gray-800 mb-4">
+          Send Custom Notification
+        </h3>
+        <div className="space-y-4">
+          {/* Message */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Message *
+            </label>
+            <textarea
+              rows={4}
+              value={customForm.message}
+              onChange={(e) =>
+                setCustomForm((f) => ({ ...f, message: e.target.value }))
+              }
+              placeholder="Write your notification message…"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1A3C6E] resize-none"
+            />
           </div>
-        </div>
-      )}
 
-      {/* ── Logs ── */}
-      {tab === "logs" && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          {logsLoading ? (
-            <div className="p-12 text-center text-gray-400">Loading…</div>
-          ) : logs.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
-              No notification logs
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {logs.map((l) => (
-                <div key={l.id} className="p-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-gray-500 uppercase">
-                      {l.eventType}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {new Date(l.sentAt || l.createdAt).toLocaleString(
-                        "en-EG",
-                      )}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-700">{l.message}</p>
-                  {l.recipientCount > 0 && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      Sent to {l.recipientCount} recipient
-                      {l.recipientCount > 1 ? "s" : ""}
-                    </p>
-                  )}
-                </div>
+          {/* Send To */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-2">
+              Send To
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { v: "all", label: "All Students", icon: Users },
+                { v: "group", label: "Specific Group", icon: BookOpen },
+                { v: "language", label: "By Language", icon: Globe },
+                { v: "specific", label: "Specific Students", icon: User },
+              ].map((opt) => (
+                <button
+                  key={opt.v}
+                  onClick={() =>
+                    setCustomForm((f) => ({ ...f, sendTo: opt.v }))
+                  }
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    customForm.sendTo === opt.v
+                      ? "bg-[#1A3C6E] text-white border-[#1A3C6E]"
+                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  <opt.icon size={14} /> {opt.label}
+                </button>
               ))}
             </div>
+          </div>
+
+          {/* Group picker */}
+          {customForm.sendTo === "group" && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Group *
+              </label>
+              <select
+                value={customForm.groupId}
+                onChange={(e) =>
+                  setCustomForm((f) => ({ ...f, groupId: e.target.value }))
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1A3C6E]"
+              >
+                <option value="">-- Select Group --</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
+
+          {/* Language picker */}
+          {customForm.sendTo === "language" && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Language *
+              </label>
+              <select
+                value={customForm.languageId}
+                onChange={(e) =>
+                  setCustomForm((f) => ({ ...f, languageId: e.target.value }))
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1A3C6E]"
+              >
+                <option value="">-- Select Language --</option>
+                {languages.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Specific Students */}
+          {customForm.sendTo === "specific" && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-2">
+                Students *
+              </label>
+
+              {/* Selected chips */}
+              {customForm.selectedStudents.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {customForm.selectedStudents.map((s) => (
+                    <span
+                      key={s.id}
+                      className="inline-flex items-center gap-1 bg-[#EEF3FA] text-[#1A3C6E] text-xs px-2.5 py-1 rounded-full font-medium"
+                    >
+                      {s.person?.firstName} {s.person?.lastName}
+                      <button
+                        onClick={() => removeStudent(s.id)}
+                        className="hover:opacity-60 ml-0.5"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Open modal button */}
+              <button
+                onClick={() => setShowStudentModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-[#1A3C6E] hover:text-[#1A3C6E] hover:bg-[#EEF3FA] transition-colors w-full justify-center"
+              >
+                <Users size={15} />
+                {customForm.selectedStudents.length > 0
+                  ? `${customForm.selectedStudents.length} selected — click to change`
+                  : "Browse & select students"}
+              </button>
+            </div>
+          )}
+
+          {/* Send button */}
+          <button
+            onClick={() => sendCustom.mutate()}
+            disabled={!canSend || sendCustom.isPending}
+            className="flex items-center gap-2 bg-[#1A3C6E] text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-[#2E7DBF] disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Send size={15} />
+            {sendCustom.isPending ? "Sending…" : "Send Notification"}
+          </button>
         </div>
-      )}
+      </div>
 
       {/* ── Student Picker Modal ── */}
       {showStudentModal && (
