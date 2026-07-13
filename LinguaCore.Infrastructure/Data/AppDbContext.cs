@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using LinguaCore.Domain.Entities;
 using Google.Api;
+using LinguaCore.Domain.Helpers;
 
 namespace LinguaCore.Infrastructure.Data;
 
@@ -101,6 +102,17 @@ public class AppDbContext : DbContext
         optionsBuilder.ConfigureWarnings(warnings =>
             warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
     }
+
+    //protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    //{
+    //    configurationBuilder
+    //        .Properties<DateTime>()
+    //        .HaveConversion<UtcDateTimeConverter>();
+
+    //    configurationBuilder
+    //        .Properties<DateTime?>()
+    //        .HaveConversion<NullableUtcDateTimeConverter>();
+    //}
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

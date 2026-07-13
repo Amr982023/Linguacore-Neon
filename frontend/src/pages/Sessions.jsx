@@ -56,6 +56,21 @@ const NO_AUTO_REFETCH = {
   refetchOnMount: false,
 };
 
+// ── UTC date/time conversion helper ──────────────────────────────────────────
+// Inputs of type="datetime-local" (e.g. "2026-07-13T14:30") and
+// type="date" (e.g. "2026-07-13") carry no timezone information. If sent
+// to the API as-is, ASP.NET model binding parses them into a DateTime with
+// Kind=Unspecified, and Npgsql then throws:
+//   "Cannot write DateTime with Kind=Unspecified to PostgreSQL type
+//   'timestamp with time zone', only UTC is supported."
+// `new Date(value)` interprets a datetime-local string as LOCAL time and a
+// date-only string as UTC midnight (per the ES spec) — either way,
+// `.toISOString()` always yields a `Z`-suffixed UTC string that Npgsql
+// accepts, without shifting the intended day/instant.
+function toUtcIso(value) {
+  return value ? new Date(value).toISOString() : value;
+}
+
 // ── useDebounce ───────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
   const [debounced, setDebounced] = useState(value);
@@ -363,6 +378,11 @@ function SessionForm({
     }
     onSubmit({
       ...data,
+      // scheduledDate comes from a datetime-local input ("2026-07-13T14:30")
+      // with no timezone info. Convert to a real UTC ISO string here so the
+      // backend never receives a DateTime with Kind=Unspecified (which
+      // Npgsql rejects for `timestamp with time zone` columns).
+      scheduledDate: toUtcIso(data.scheduledDate),
       hallId: data.hallId || null,
       zoomAccountId: data.zoomAccountId || null,
     });
