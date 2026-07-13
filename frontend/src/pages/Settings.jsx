@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../context/authStore";
 import { lookupsApi } from "../services/endpoints";
@@ -854,6 +854,18 @@ export default function Settings() {
     lookupsApi.deletePeriodLabel,
   );
 
+  // Only show period labels created within the last 1 year; anything older
+  // is hidden from this list (still exists in the backend, just not shown here).
+  const visiblePeriodLabels = useMemo(() => {
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    return periodLabels.data.filter((pl) => {
+      const created = pl.createdAt || pl.createdOn || pl.dateCreated;
+      if (!created) return true; // no timestamp available — don't hide it
+      return new Date(created) >= oneYearAgo;
+    });
+  }, [periodLabels.data]);
+
   // ── App Settings ───────────────────────────────────────────────────────────
   const { data: appSettings = [] } = useQuery({
     queryKey: ["appSettings"],
@@ -1287,9 +1299,10 @@ export default function Settings() {
         >
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
             Used on sessions to categorize them by period (e.g. Month 1, Level
-            A1, Term 2).
+            A1, Term 2). Only labels created within the last year are shown
+            here.
           </p>
-          {periodLabels.data.map((pl) => (
+          {visiblePeriodLabels.map((pl) => (
             <InlineRow
               key={pl.id}
               item={pl}
@@ -1298,6 +1311,11 @@ export default function Settings() {
               onDelete={(id) => periodLabels.remove.mutate(id)}
             />
           ))}
+          {visiblePeriodLabels.length === 0 && (
+            <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
+              No period labels from the last year
+            </p>
+          )}
           <AddRow
             fields={[{ key: "name", label: "e.g. Month 1, Term 2, Level A1" }]}
             onAdd={(form) => periodLabels.create.mutate(form)}

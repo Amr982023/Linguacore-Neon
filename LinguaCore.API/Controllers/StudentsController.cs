@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using LinguaCore.Application.DTOs.Request;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Enums;
+using LinguaCore.Application.DTOs.Request.Filters;
 
 namespace LinguaCore.API.Controllers;
 
@@ -26,6 +27,11 @@ public class StudentsController : ControllerBase
         var result = await _service.GetByIdAsync(id);
         return result.Success ? Ok(result) : NotFound(result);
     }
+
+    [HttpGet("branch/{branchId}/paged")]
+    [Authorize(Policy = PermissionPolicies.StudentsRead)]
+    public async Task<IActionResult> GetByBranchPaged(Guid branchId, [FromQuery] StudentFilterRequest filter)
+    => Ok(await _service.GetByBranchPagedAsync(branchId, filter));
 
     [HttpGet("qr/{qrCode}")]
     [Authorize(Policy = PermissionPolicies.AttendanceWrite)]

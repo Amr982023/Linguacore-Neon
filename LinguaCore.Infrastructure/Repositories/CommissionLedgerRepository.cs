@@ -38,4 +38,28 @@ public class CommissionLedgerRepository : GenericRepository<CommissionLedger>, I
             .Include(c => c.Instructor).ThenInclude(i => i.Person)
             .Where(c => c.SessionId == sessionId)
             .ToListAsync();
+
+    public async Task<(IEnumerable<CommissionLedger> Items, int TotalCount)> GetByInstructorPagedAsync(
+        Guid instructorId, DateTime? from, DateTime? to, int page, int pageSize)
+    {
+        var query = _dbSet.Where(c => c.InstructorId == instructorId
+                                    && (from == null || c.CreatedAt >= from)
+                                    && (to == null || c.CreatedAt <= to));
+
+        // Count against the filtered query BEFORE Include/Skip/Take — cheaper,
+        // and avoids the Group/Payment joins inflating the row count. Same
+        // reasoning as SaleRepository.GetByBranchPagedAsync.
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .Include(c => c.Instructor).ThenInclude(i => i.Person)
+            .Include(c => c.Group).ThenInclude(g => g.LanguageLevel).ThenInclude(ll => ll.Language)
+            .Include(c => c.Payment)
+            .OrderByDescending(c => c.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
 }

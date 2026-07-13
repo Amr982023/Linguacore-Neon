@@ -1,13 +1,35 @@
 // pages/CenterDeductions.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../context/authStore";
 import { centerDeductionsApi } from "../services/endpoints";
-import { Wallet, Plus, Trash2, CalendarRange, X, Loader2 } from "lucide-react";
+import {
+  Wallet,
+  Plus,
+  Trash2,
+  CalendarRange,
+  X,
+  Loader2,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 const fmtEGP = (v) => `${Number(v || 0).toLocaleString()} EGP`;
 const fmtDate = (d) => new Date(d).toLocaleDateString();
+
+const PAGE_SIZE = 10;
+
+// Applied to every useQuery on this page so data only reloads on a
+// deliberate user action (filter/search/page change, or a mutation's own
+// invalidateQueries) — never from window focus, remount, or reconnect.
+const NO_AUTO_REFETCH = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
 
 function Modal({ open, onClose, title, children }) {
   if (!open) return null;
@@ -139,17 +161,51 @@ function AddDeductionModal({ open, onClose, branchId }) {
 export default function CenterDeductions() {
   const { branchId } = useAuthStore();
   const qc = useQueryClient();
+
   const [range, setRange] = useState({ from: "", to: "" });
+  const [searchInput, setSearchInput] = useState(""); // what the user is typing
+  const [search, setSearch] = useState(""); // what's actually been committed/queried
+  const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["center-deductions", branchId, range.from, range.to],
+  // Reset to page 1 whenever the filter changes — otherwise you can get
+  // stuck on page 3 of a filtered result that only has 1 page.
+  useEffect(() => {
+    setPage(1);
+  }, [range.from, range.to, search]);
+
+  const commitSearch = () => setSearch(searchInput.trim());
+
+  const filter = {
+    from: range.from || undefined,
+    to: range.to || undefined,
+    search: search || undefined,
+    page,
+    pageSize: PAGE_SIZE,
+  };
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: [
+      "center-deductions",
+      branchId,
+      range.from,
+      range.to,
+      search,
+      page,
+    ],
     queryFn: () =>
       centerDeductionsApi
-        .getByBranch(branchId, range.from || undefined, range.to || undefined)
-        .then((r) => r.data?.data ?? []),
+        .getByBranchPaged(branchId, filter)
+        .then((r) => r.data?.data),
     enabled: !!branchId,
+    keepPreviousData: true, // avoids a flash of "no deductions" while flipping pages
+    ...NO_AUTO_REFETCH,
   });
+
+  const items = data?.items ?? [];
+  const totalCount = data?.totalCount ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+  const totalAmountInRange = data?.totalAmountInRange ?? 0;
 
   const { mutate: remove } = useMutation({
     mutationFn: (id) => centerDeductionsApi.delete(id),
@@ -160,8 +216,6 @@ export default function CenterDeductions() {
     onError: (err) =>
       toast.error(err?.response?.data?.message || "Delete failed"),
   });
-
-  const total = (data || []).reduce((sum, d) => sum + d.amount, 0);
 
   return (
     <div className="p-6">
@@ -210,9 +264,40 @@ export default function CenterDeductions() {
             onChange={(e) => setRange({ ...range, to: e.target.value })}
           />
         </div>
-        {(range.from || range.to) && (
+
+        <div className="relative">
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            Search name
+          </label>
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+            <input
+              type="text"
+              placeholder="e.g. Rent"
+              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-white w-40"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && commitSearch()}
+            />
+          </div>
+        </div>
+        <button
+          onClick={commitSearch}
+          className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg px-3 py-1.5 mb-0.5 hover:bg-gray-200 dark:hover:bg-gray-600"
+        >
+          Search
+        </button>
+
+        {(range.from || range.to || search) && (
           <button
-            onClick={() => setRange({ from: "", to: "" })}
+            onClick={() => {
+              setRange({ from: "", to: "" });
+              setSearchInput("");
+              setSearch("");
+            }}
             className="text-xs text-blue-600 dark:text-blue-400 hover:underline mb-2"
           >
             Clear filter
@@ -223,12 +308,14 @@ export default function CenterDeductions() {
             Total in range
           </div>
           <div className="text-lg font-semibold text-red-500">
-            {fmtEGP(total)}
+            {fmtEGP(totalAmountInRange)}
           </div>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+      <div
+        className={`bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden transition-opacity ${isFetching ? "opacity-60" : ""}`}
+      >
         <table className="w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-900/40 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
             <tr>
@@ -248,14 +335,14 @@ export default function CenterDeductions() {
                 </td>
               </tr>
             )}
-            {!isLoading && (data || []).length === 0 && (
+            {!isLoading && items.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-8 text-center text-gray-400">
                   No deductions recorded for this range.
                 </td>
               </tr>
             )}
-            {(data || []).map((d) => (
+            {items.map((d) => (
               <tr
                 key={d.id}
                 className="hover:bg-gray-50 dark:hover:bg-gray-900/30"
@@ -288,6 +375,30 @@ export default function CenterDeductions() {
             ))}
           </tbody>
         </table>
+
+        {totalCount > PAGE_SIZE && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 dark:border-gray-700">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              Page {page} of {totalPages} — {totalCount} total
+            </p>
+            <div className="flex gap-1.5">
+              <button
+                disabled={page === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <AddDeductionModal

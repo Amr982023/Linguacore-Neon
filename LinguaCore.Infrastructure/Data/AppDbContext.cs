@@ -352,6 +352,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Session>()
             .HasOne(s => s.PeriodLabel).WithMany(pl => pl.Sessions)
             .HasForeignKey(s => s.PeriodLabelId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Session>()
+            .HasIndex(s => new { s.GroupId, s.PeriodLabelId })
+            .HasDatabaseName("IX_Session_GroupId_PeriodLabelId");
 
         // Group
         modelBuilder.Entity<Group>()
@@ -369,6 +372,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Group>()
             .HasOne(g => g.Instructor).WithMany(i => i.Groups)
             .HasForeignKey(g => g.InstructorId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Group>()
+            .HasIndex(g => new { g.BranchId, g.GroupStatusId });
 
         // GroupPeriod
         modelBuilder.Entity<GroupPeriod>()
@@ -399,6 +404,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Enrollment>()
             .HasOne(e => e.Group).WithMany(g => g.Enrollments)
             .HasForeignKey(e => e.GroupId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Enrollment>()
+            .HasIndex(e => e.GroupId)
+             .HasDatabaseName("IX_Enrollment_GroupId");
 
         // Payment
         modelBuilder.Entity<Payment>()
@@ -407,6 +415,15 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Payment>()
             .HasOne(p => p.RecordedByUser).WithMany()
             .HasForeignKey(p => p.RecordedBy).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Payment>()
+            .HasIndex(p => new { p.PaymentDate, p.Id })
+            .HasDatabaseName("IX_Payment_PaymentDate_Id");
+        modelBuilder.Entity<Payment>()
+            .HasIndex(p => new { p.EnrollmentId, p.PeriodLabelId })
+            .HasDatabaseName("IX_Payment_EnrollmentId_PeriodLabelId");
+        modelBuilder.Entity<Payment>()
+            .HasIndex(p => p.PaymentMethodId)
+            .HasDatabaseName("IX_Payment_PaymentMethodId");
 
         // RefundRecord
         modelBuilder.Entity<RefundRecord>()
@@ -432,6 +449,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AttendanceRecord>()
             .HasOne(a => a.RevertedByUser).WithMany()
             .HasForeignKey(a => a.RevertedBy).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<AttendanceRecord>()
+            .HasIndex(a => new { a.StudentId, a.Status, a.Reverted })
+            .HasDatabaseName("IX_AttendanceRecord_StudentId_Status_Reverted");
 
         // ExamResult
         modelBuilder.Entity<ExamResult>()
@@ -484,6 +504,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Student>()
             .HasOne(s => s.NestedGoal).WithMany()
             .HasForeignKey(s => s.NestedGoalId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Student>()
+            .HasIndex(s => new { s.BranchId, s.IsActive });
+        modelBuilder.Entity<Enrollment>()
+            .HasIndex(e => new { e.StudentId, e.EnrollStatusId });
+
+
 
         // Instructor
         modelBuilder.Entity<Instructor>()

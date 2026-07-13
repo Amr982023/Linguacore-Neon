@@ -1,4 +1,5 @@
 ﻿// LinguaCore.Application.Services/CertificateService.cs
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
@@ -15,6 +16,20 @@ public class CertificateService : ICertificateService
     {
         var certs = await _uow.Certificates.GetByBranchAsync(branchId);
         return ApiResponse<IEnumerable<CertificateResponse>>.Ok(certs.Select(Map));
+    }
+
+    public async Task<ApiResponse<PagedResult<CertificateResponse>>> GetByBranchPagedAsync(
+    CertificateFilterRequest filter)
+    {
+        var page = filter.Page < 1 ? 1 : filter.Page;
+        var pageSize = filter.PageSize is < 1 or > 100 ? 10 : filter.PageSize; // hard cap, same as Sales
+
+        var (certs, totalCount) = await _uow.Certificates.GetByBranchPagedAsync(
+            filter.BranchId, filter.Search, filter.LanguageId, filter.LevelId, filter.GroupId,
+            page, pageSize);
+
+        return ApiResponse<PagedResult<CertificateResponse>>.Ok(
+            new PagedResult<CertificateResponse>(certs.Select(Map), totalCount, page, pageSize));
     }
 
     public async Task<ApiResponse<CertificateResponse>> GetByIdAsync(Guid id)

@@ -5,6 +5,7 @@ using LinguaCore.Application.DTOs.Request;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Enums;
 using System.Security.Claims;
+using LinguaCore.Application.DTOs.Request.Filters;
 
 namespace LinguaCore.API.Controllers;
 
@@ -31,6 +32,15 @@ public class CenterDeductionController : ControllerBase
     public async Task<IActionResult> Update([FromBody] UpdateCenterDeductionRequest req)
     {
         var result = await _service.UpdateAsync(req);
+        return result.Success ? Ok(result) : BadRequest(result);
+    }
+
+    [HttpGet("branch/{branchId:guid}/paged")]
+    [Authorize(Policy = PermissionPolicies.ClosingsRead)]
+    public async Task<IActionResult> GetByBranchPaged(Guid branchId, [FromQuery] CenterDeductionFilterRequest filter)
+    {
+        // route param wins over any stray branchId in the querystring
+        var result = await _service.GetByBranchPagedAsync(filter with { BranchId = branchId });
         return result.Success ? Ok(result) : BadRequest(result);
     }
 

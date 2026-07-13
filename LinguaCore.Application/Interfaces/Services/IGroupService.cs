@@ -1,4 +1,5 @@
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 
 namespace LinguaCore.Application.Interfaces.Services;
@@ -12,6 +13,7 @@ public interface IGroupService
     Task<ApiResponse<IEnumerable<GroupResponse>>> GetByLanguageLevelAsync(
         Guid languageId, Guid levelId, Guid? branchId = null);
     Task<ApiResponse<IEnumerable<GroupResponse>>> GetByBranchAsync(Guid branchId);
+    Task<ApiResponse<PagedResponse<GroupResponse>>> GetByBranchPagedAsync(Guid branchId, GroupFilterRequest filter);
     Task<ApiResponse<bool>> ChangeInstructorAsync(ChangeGroupInstructorRequest request);
     Task<ApiResponse<bool>> CheckHallConflictAsync(Guid hallId, DateTime start, DateTime end, Guid? excludeSessionId = null);
     Task<ApiResponse<bool>> CheckZoomConflictAsync(Guid zoomId, DateTime start, DateTime end, Guid? excludeSessionId = null);

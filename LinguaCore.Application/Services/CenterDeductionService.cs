@@ -1,5 +1,6 @@
 ﻿// Application/Services/CenterDeductionService.cs
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
@@ -16,6 +17,40 @@ public class CenterDeductionService : ICenterDeductionService
     private static ApiResponse<T> Ok<T>(T data) => ApiResponse<T>.Ok(data);
     private static ApiResponse<T> Fail<T>(string m) => ApiResponse<T>.Fail(m);
 
+
+    public async Task<ApiResponse<CenterDeductionPagedResponse>> GetByBranchPagedAsync(
+    CenterDeductionFilterRequest filter)
+    {
+        var page = filter.Page < 1 ? 1 : filter.Page;
+        var pageSize = filter.PageSize is < 1 or > 100 ? 10 : filter.PageSize; // hard cap, same rationale as Sales
+
+        var query = _uow.Repository<CenterDeduction>().Query()
+            .Include(d => d.CreatedByUser).ThenInclude(u => u.Person)
+            .Where(d => d.BranchId == filter.BranchId
+                     && (filter.From == null || d.DeductionDate >= filter.From)
+                     && (filter.To == null || d.DeductionDate <= filter.To));
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var term = filter.Search.Trim().ToLower();
+            query = query.Where(d => d.Name.ToLower().Contains(term));
+        }
+
+        // Count + sum against the filtered query BEFORE Skip/Take — these describe
+        // the whole range, not just the visible page, and are cheap since they're
+        // aggregates pushed down to Postgres rather than materialized rows.
+        var totalCount = await query.CountAsync();
+        var totalAmountInRange = await query.SumAsync(d => (decimal?)d.Amount) ?? 0m;
+
+        var items = await query
+            .OrderByDescending(d => d.DeductionDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return Ok(new CenterDeductionPagedResponse(
+            items.Select(MapToResponse), totalCount, page, pageSize, totalAmountInRange));
+    }
     public async Task<ApiResponse<CenterDeductionResponse>> CreateAsync(CreateCenterDeductionRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Name))

@@ -45,6 +45,17 @@ const DEFAULT_FILTERS = {
   periodLabelFilter: "",
 };
 
+// Applied to every useQuery on this page so data only reloads on a
+// deliberate user action (filter/search/page change, a mutation's own
+// invalidateQueries/refetch, or an actual page reload) — never from window
+// focus, remount, or reconnect.
+const NO_AUTO_REFETCH = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
+
 // ── useDebounce ───────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
   const [debounced, setDebounced] = useState(value);
@@ -620,6 +631,7 @@ function SessionViewModal({ session, onClose }) {
     queryKey: ["att", session.id],
     queryFn: () => sessionsApi.getAttendance(session.id),
     enabled: session.status !== "CANCELLED",
+    ...NO_AUTO_REFETCH,
   });
 
   const attendance = attRes?.data?.data || [];
@@ -802,6 +814,7 @@ function AttendanceModal({ session, onClose }) {
   const { data: attRes, refetch } = useQuery({
     queryKey: ["att", session.id],
     queryFn: () => sessionsApi.getAttendance(session.id),
+    ...NO_AUTO_REFETCH,
   });
 
   const markMut = useMutation({
@@ -1179,6 +1192,7 @@ export default function Sessions() {
     queryFn: () => sessionsApi.getByBranch(branchId, queryParams),
     enabled: !!branchId,
     keepPreviousData: true,
+    ...NO_AUTO_REFETCH,
   });
 
   // Single stats query — one DB call via GroupBy on the backend
@@ -1186,29 +1200,34 @@ export default function Sessions() {
     queryKey: ["sessions", "stats", branchId],
     queryFn: () => sessionsApi.getStats(branchId),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
   const { data: grpRes } = useQuery({
     queryKey: ["groups", branchId],
     queryFn: () => groupsApi.getByBranch(branchId),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
   const { data: hallRes } = useQuery({
     queryKey: ["halls", branchId],
     queryFn: () => lookupsApi.getHalls(branchId),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
   const { data: zoomRes } = useQuery({
     queryKey: ["zoom", branchId],
     queryFn: () => lookupsApi.getZoomAccounts(branchId),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
   const { data: periodRes } = useQuery({
     queryKey: ["period-labels"],
     queryFn: lookupsApi.getPeriodLabels,
+    ...NO_AUTO_REFETCH,
   });
 
   // ── Derived data ──────────────────────────────────────────────────────────

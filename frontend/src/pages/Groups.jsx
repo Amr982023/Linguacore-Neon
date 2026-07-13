@@ -38,19 +38,88 @@ import {
   UserPlus,
   LogOut,
   UserX,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+
+const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS = {
   search: "",
-  filterStatus: "",
-  filterCat: "",
-  filterType: "",
-  filterLang: "",
-  filterLevel: "",
-  filterInstructor: "",
-  filterMode: "",
-  filterZoom: "",
+  filterStatusId: "",
+  filterCategoryId: "",
+  filterTypeId: "",
+  filterLanguageId: "",
+  filterLevelId: "",
+  filterInstructorId: "",
+  filterModeId: "",
+  filterZoomId: "",
+  filterHallId: "",
 };
+
+// ── Cache-patch helpers (module-level: no invalidateQueries anywhere) ───────
+// These patch every cached ["groups", branchId, ...] query entry in place —
+// regardless of which page/filter combo it represents — without triggering
+// a network refetch. Only the currently-visible page actually re-renders.
+
+function patchGroupInList(qc, branchId, groupId, updater) {
+  qc.setQueriesData({ queryKey: ["groups", branchId], exact: false }, (old) => {
+    if (!old) return old;
+    const items = old.data?.data?.items;
+    if (!items) return old;
+    let changed = false;
+    const newItems = items.map((g) => {
+      if (g.id !== groupId) return g;
+      changed = true;
+      return updater(g);
+    });
+    if (!changed) return old;
+    return {
+      ...old,
+      data: { ...old.data, data: { ...old.data.data, items: newItems } },
+    };
+  });
+}
+
+function addGroupToList(qc, branchId, newGroup) {
+  qc.setQueriesData({ queryKey: ["groups", branchId], exact: false }, (old) => {
+    if (!old) return old;
+    const items = old.data?.data?.items;
+    if (!items) return old;
+    return {
+      ...old,
+      data: {
+        ...old.data,
+        data: {
+          ...old.data.data,
+          items: [newGroup, ...items].slice(0, PAGE_SIZE),
+          totalCount: (old.data.data.totalCount ?? 0) + 1,
+        },
+      },
+    };
+  });
+}
+
+function removeGroupFromList(qc, branchId, groupId) {
+  qc.setQueriesData({ queryKey: ["groups", branchId], exact: false }, (old) => {
+    if (!old) return old;
+    const items = old.data?.data?.items;
+    if (!items) return old;
+    const newItems = items.filter((g) => g.id !== groupId);
+    if (newItems.length === items.length) return old;
+    return {
+      ...old,
+      data: {
+        ...old.data,
+        data: {
+          ...old.data.data,
+          items: newItems,
+          totalCount: Math.max(0, (old.data.data.totalCount ?? 1) - 1),
+        },
+      },
+    };
+  });
+}
 
 // ── GroupForm ─────────────────────────────────────────────────────────────────
 function GroupForm({
@@ -78,6 +147,10 @@ function GroupForm({
   const languageLevelId = watch("languageLevelId");
   const selectedMode = modes.find((m) => m.id == deliveryMode);
 
+  // NOTE: this dropdown's value IS correctly the LanguageLevel join-row id
+  // (lv.languageLevelId) — Group.LanguageLevelId is a direct FK to that join
+  // entity, not to Level. This is distinct from the *filter* dropdown below,
+  // which needs the real Level.Id instead. Don't conflate the two.
   const selectedLanguageId = useMemo(() => {
     if (!languageLevelId) return null;
     for (const lang of languages) {
@@ -726,7 +799,6 @@ function EarlyExitForm({ enrollment, paymentMethods = [], onSubmit, loading }) {
     },
   });
 
-  // Load preview as soon as the modal opens
   const {
     data: previewRes,
     isLoading: previewLoading,
@@ -735,11 +807,14 @@ function EarlyExitForm({ enrollment, paymentMethods = [], onSubmit, loading }) {
     queryKey: ["refund-preview", enrollment?.id],
     queryFn: () => enrollmentsApi.getRefundPreview(enrollment.id),
     enabled: !!enrollment?.id,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const preview = previewRes?.data?.data;
 
-  // Pre-fill actual refund with calculated value once loaded
   useEffect(() => {
     if (preview?.calculatedRefundAmount != null) {
       setValue("actualRefundAmount", preview.calculatedRefundAmount);
@@ -766,7 +841,6 @@ function EarlyExitForm({ enrollment, paymentMethods = [], onSubmit, loading }) {
       onSubmit={handleSubmit(handleValid, handleInvalid)}
       className="space-y-4"
     >
-      {/* ── Warning banner ── */}
       <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm space-y-1">
         <p className="font-semibold text-amber-800 dark:text-amber-300">
           ⚠ Early Exit — {enrollment?.studentName}
@@ -777,7 +851,6 @@ function EarlyExitForm({ enrollment, paymentMethods = [], onSubmit, loading }) {
         </p>
       </div>
 
-      {/* ── Preview panel ── */}
       {previewLoading && (
         <p className="text-sm text-gray-400 animate-pulse">
           Loading refund preview…
@@ -824,7 +897,6 @@ function EarlyExitForm({ enrollment, paymentMethods = [], onSubmit, loading }) {
         </div>
       )}
 
-      {/* ── Only show the rest of the form if a refund is possible ── */}
       {preview?.canRefund && (
         <>
           <Select
@@ -885,31 +957,48 @@ function EarlyExitForm({ enrollment, paymentMethods = [], onSubmit, loading }) {
     </form>
   );
 }
+
 // ── GroupDetail ───────────────────────────────────────────────────────────────
 function GroupDetail({ group, onClose, instructors = [], branchId }) {
   const [tab, setTab] = useState("enrollments");
   const [changeInstr, setChangeInstr] = useState(false);
   const [enrollModal, setEnrollModal] = useState(false);
-  const [exitTarget, setExitTarget] = useState(null); // ACTIVE / OVERDUE
-  const [unenrollTarget, setUnenrollTarget] = useState(null); // PENDING / PARTIAL
+  const [exitTarget, setExitTarget] = useState(null);
+  const [unenrollTarget, setUnenrollTarget] = useState(null);
   const qc = useQueryClient();
 
   const { data: enrRes, refetch: refetchEnr } = useQuery({
     queryKey: ["enr-g", group.id],
     queryFn: () => enrollmentsApi.getByGroup(group.id),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: sesRes } = useQuery({
     queryKey: ["ses-g", group.id],
     queryFn: () => sessionsApi.getByGroup(group.id),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: studentsRes } = useQuery({
     queryKey: ["students", branchId],
     queryFn: () => studentsApi.getByBranch(branchId),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: pmRes } = useQuery({
     queryKey: ["payment-methods"],
     queryFn: () => lookupsApi.getPaymentMethods(),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const students = studentsRes?.data?.data || [];
@@ -931,13 +1020,23 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
     (s) => s.isActive && !enrolledStudentIds.has(s.id),
   );
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
+  // ── Mutations — patch the specific group's row in whatever "groups" list
+  // pages are cached, instead of invalidating (which would force a refetch).
 
   const changeInstrMut = useMutation({
     mutationFn: (d) => groupsApi.changeInstructor(d),
-    onSuccess: () => {
+    onSuccess: (_response, variables) => {
       toast.success("Instructor changed");
-      qc.invalidateQueries(["groups"]);
+      const instr = instructors.find((i) => i.id === variables.newInstructorId);
+      const instructorName = instr?.person
+        ? `${instr.person.firstName} ${instr.person.lastName}`
+        : undefined;
+      patchGroupInList(qc, branchId, group.id, (g) => ({
+        ...g,
+        instructorId: variables.newInstructorId,
+        instructorName: instructorName ?? g.instructorName,
+        instructorCommissionPct: variables.newCommissionPct,
+      }));
       setChangeInstr(false);
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
@@ -948,7 +1047,12 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
     onSuccess: (res) => {
       toast.success("Student enrolled");
       refetchEnr();
-      qc.invalidateQueries(["groups"]);
+      // MapToResponse counts ALL enrollments regardless of status, so a new
+      // enrollment is always a safe +1 on the list's enrolledCount.
+      patchGroupInList(qc, branchId, group.id, (g) => ({
+        ...g,
+        enrolledCount: (g.enrolledCount || 0) + 1,
+      }));
       setEnrollModal(false);
       const id = res?.data?.data?.id;
       if (id) notificationsApi.enrollmentConfirmedGmail(id).catch(() => {});
@@ -961,7 +1065,10 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
     onSuccess: (res) => {
       toast.success("Partial enrollment created");
       refetchEnr();
-      qc.invalidateQueries(["groups"]);
+      patchGroupInList(qc, branchId, group.id, (g) => ({
+        ...g,
+        enrolledCount: (g.enrolledCount || 0) + 1,
+      }));
       setEnrollModal(false);
       const id = res?.data?.data?.id;
       if (id) notificationsApi.enrollmentConfirmedGmail(id).catch(() => {});
@@ -969,13 +1076,13 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
 
-  // Exit & Refund — ACTIVE / OVERDUE
+  // Exit & Refund — status changes only, enrollment row still exists, so
+  // enrolledCount (which counts ALL statuses) is unaffected. No list patch needed.
   const exitMut = useMutation({
     mutationFn: (d) => enrollmentsApi.earlyExitRefund(d),
     onSuccess: (res) => {
       toast.success("Student exited · refund recorded · commission blocked");
       refetchEnr();
-      qc.invalidateQueries(["groups"]);
       setExitTarget(null);
       const refundId = res?.data?.data?.id;
       if (refundId)
@@ -984,23 +1091,21 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
 
-  // Unenroll — hard delete for PENDING / PARTIAL with no payments
+  // Unenroll — hard delete for PENDING / PARTIAL with no payments: -1
   const unenrollMut = useMutation({
     mutationFn: (id) => enrollmentsApi.unenroll(id),
     onSuccess: () => {
       toast.success("Enrollment removed");
       refetchEnr();
-      qc.invalidateQueries(["groups"]);
+      patchGroupInList(qc, branchId, group.id, (g) => ({
+        ...g,
+        enrolledCount: Math.max(0, (g.enrolledCount || 0) - 1),
+      }));
       setUnenrollTarget(null);
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
 
-  // ── Action cell renderer ──────────────────────────────────────────────────
-  // PENDING / PARTIAL  → red  Unenroll button  (UserX icon)
-  // ACTIVE  / OVERDUE  → amber Exit button     (LogOut icon)
-  // EXITED_REFUNDED    → green "✓ Refunded" label
-  // everything else    → —
   const renderActionCell = (r) => {
     if (r.status?.toUpperCase() === "EXITED_REFUNDED") {
       return (
@@ -1036,7 +1141,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
 
   return (
     <Modal open onClose={onClose} title={`${group.name} — Details`} size="xl">
-      {/* Group info grid */}
       <div className="grid grid-cols-3 gap-3 mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
         {[
           ["Language", group.languageName],
@@ -1085,7 +1189,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
         onChange={setTab}
       />
 
-      {/* ── Enrollments tab ─────────────────────────────────────────────── */}
       {tab === "enrollments" && (
         <Table
           columns={[
@@ -1149,7 +1252,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
         />
       )}
 
-      {/* ── Sessions tab ────────────────────────────────────────────────── */}
       {tab === "sessions" && (
         <Table
           columns={[
@@ -1173,7 +1275,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
         />
       )}
 
-      {/* ── Change Instructor modal ──────────────────────────────────────── */}
       <Modal
         open={changeInstr}
         onClose={() => setChangeInstr(false)}
@@ -1188,7 +1289,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
         />
       </Modal>
 
-      {/* ── Enroll Student modal ─────────────────────────────────────────── */}
       <Modal
         open={enrollModal}
         onClose={() => setEnrollModal(false)}
@@ -1204,7 +1304,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
         />
       </Modal>
 
-      {/* ── Early Exit & Refund modal (ACTIVE / OVERDUE) ─────────────────── */}
       <Modal
         open={!!exitTarget}
         onClose={() => !exitMut.isPending && setExitTarget(null)}
@@ -1221,7 +1320,6 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
         )}
       </Modal>
 
-      {/* ── Unenroll confirm dialog (PENDING / PARTIAL — no payments) ────── */}
       <ConfirmDialog
         open={!!unenrollTarget}
         title="Remove Enrollment"
@@ -1242,61 +1340,175 @@ function GroupDetail({ group, onClose, instructors = [], branchId }) {
 export default function Groups() {
   const { branchId } = useAuthStore();
   const qc = useQueryClient();
+
+  const [searchInput, setSearchInput] = useState("");
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
+  const [page, setPage] = useState(1);
+
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const setFilter = (key, value) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
-  const resetFilters = () => setFilters({ ...DEFAULT_FILTERS });
+
+  const resetFilters = () => {
+    setSearchInput("");
+    setFilters({ ...DEFAULT_FILTERS });
+    setPage(1);
+  };
+
   const isAnyFilterActive = useMemo(
-    () => Object.entries(filters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
-    [filters],
+    () =>
+      !!searchInput ||
+      Object.entries(filters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
+    [filters, searchInput],
   );
 
-  const { data: res, isLoading } = useQuery({
-    queryKey: ["groups", branchId],
-    queryFn: () => groupsApi.getByBranch(branchId),
+  // Debounce free-text search
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilter("search", searchInput);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Reset to page 1 on any other filter change
+  useEffect(() => {
+    setPage(1);
+  }, [
+    filters.filterStatusId,
+    filters.filterCategoryId,
+    filters.filterTypeId,
+    filters.filterLanguageId,
+    filters.filterLevelId,
+    filters.filterInstructorId,
+    filters.filterModeId,
+    filters.filterZoomId,
+    filters.filterHallId,
+  ]);
+
+  const queryParams = useMemo(
+    () => ({
+      page,
+      pageSize: PAGE_SIZE,
+      search: filters.search || undefined,
+      languageId: filters.filterLanguageId || undefined,
+      levelId: filters.filterLevelId || undefined,
+      instructorId: filters.filterInstructorId || undefined,
+      groupCategoryId: filters.filterCategoryId || undefined,
+      groupTypeId: filters.filterTypeId || undefined,
+      deliveryModeId: filters.filterModeId || undefined,
+      groupStatusId: filters.filterStatusId || undefined,
+      zoomAccountId: filters.filterZoomId || undefined,
+      hallId: filters.filterHallId || undefined,
+    }),
+    [page, filters],
+  );
+
+  const queryKey = ["groups", branchId, queryParams];
+
+  const {
+    data: res,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey,
+    queryFn: () => groupsApi.getByBranchPaged(branchId, queryParams),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    keepPreviousData: true,
   });
+
   const { data: langRes } = useQuery({
     queryKey: ["languages"],
     queryFn: () => lookupsApi.getLanguages(),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: instrRes } = useQuery({
     queryKey: ["instructors", branchId],
     queryFn: () => instructorsApi.getByBranch(branchId),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: hallRes } = useQuery({
     queryKey: ["halls", branchId],
     queryFn: () => lookupsApi.getHalls(branchId),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: zoomRes } = useQuery({
     queryKey: ["zoom", branchId],
     queryFn: () => lookupsApi.getZoomAccounts(branchId),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: statRes } = useQuery({
     queryKey: ["gstatus"],
     queryFn: () => lookupsApi.getGroupStatuses(),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: catRes } = useQuery({
     queryKey: ["gcat"],
     queryFn: () => lookupsApi.getGroupCategories(),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: typeRes } = useQuery({
     queryKey: ["gtype"],
     queryFn: () => lookupsApi.getGroupTypes(),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: modeRes } = useQuery({
     queryKey: ["gmode"],
     queryFn: () => lookupsApi.getDeliveryModes(),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const groups = res?.data?.data || [];
+  // Levels for the currently selected filter language — real Level.Id,
+  // same fix applied on the Students page (LookupResponse: {id, name}).
+  const { data: levelsRes } = useQuery({
+    queryKey: ["languageLevels", filters.filterLanguageId],
+    queryFn: () => lookupsApi.getLanguageLevels(filters.filterLanguageId),
+    enabled: !!filters.filterLanguageId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
+  const groups = res?.data?.data?.items || [];
+  const totalCount = res?.data?.data?.totalCount || 0;
+  const totalPages = res?.data?.data?.totalPages || 1;
+
   const languages = langRes?.data?.data || [];
   const instructors = instrRes?.data?.data || [];
   const halls = hallRes?.data?.data || [];
@@ -1305,54 +1517,7 @@ export default function Groups() {
   const categories = catRes?.data?.data || [];
   const types = typeRes?.data?.data || [];
   const modes = modeRes?.data?.data || [];
-
-  const levelsForFilter = useMemo(() => {
-    if (!filters.filterLang) {
-      const seen = new Set();
-      return languages
-        .flatMap((l) => l.levels || [])
-        .filter((lv) => {
-          if (seen.has(lv.name)) return false;
-          seen.add(lv.name);
-          return true;
-        });
-    }
-    return languages.find((l) => l.name === filters.filterLang)?.levels || [];
-  }, [languages, filters.filterLang]);
-
-  const filtered = useMemo(
-    () =>
-      groups.filter((g) => {
-        const q = filters.search.toLowerCase();
-        if (q && !g.name.toLowerCase().includes(q)) return false;
-        if (filters.filterStatus && g.groupStatus !== filters.filterStatus)
-          return false;
-        if (filters.filterCat && g.groupCategory !== filters.filterCat)
-          return false;
-        if (filters.filterType && g.groupType !== filters.filterType)
-          return false;
-        if (filters.filterLang && g.languageName !== filters.filterLang)
-          return false;
-        if (filters.filterLevel && g.levelCode !== filters.filterLevel)
-          return false;
-        if (
-          filters.filterInstructor &&
-          g.instructorName !== filters.filterInstructor
-        )
-          return false;
-        if (filters.filterMode && g.deliveryMode !== filters.filterMode)
-          return false;
-        if (
-          filters.filterZoom &&
-          String(g.zoomAccountId) !== filters.filterZoom
-        )
-          return false;
-        return true;
-      }),
-    [groups, filters],
-  );
-
-  const invalidate = () => qc.invalidateQueries(["groups"]);
+  const levelOptions = levelsRes?.data?.data || [];
 
   const createMut = useMutation({
     mutationFn: (d) =>
@@ -1363,13 +1528,15 @@ export default function Groups() {
         zoomAccountId: d.zoomAccountId || null,
         maxCapacity: d.maxCapacity || null,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      const newGroup = response?.data?.data;
       toast.success("Group created");
-      invalidate();
+      if (newGroup) addGroupToList(qc, branchId, newGroup);
       setModal(null);
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
+
   const updateMut = useMutation({
     mutationFn: (d) =>
       groupsApi.update({
@@ -1379,26 +1546,33 @@ export default function Groups() {
         zoomAccountId: d.zoomAccountId || null,
         maxCapacity: d.maxCapacity || null,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      const updated = response?.data?.data;
       toast.success("Updated");
-      invalidate();
+      if (updated) patchGroupInList(qc, branchId, updated.id, () => updated);
       setModal(null);
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
+
   const deleteMut = useMutation({
     mutationFn: (id) => groupsApi.delete(id),
-    onSuccess: () => {
+    onSuccess: (_response, id) => {
       toast.success("Group deleted");
-      invalidate();
+      removeGroupFromList(qc, branchId, id);
       setDeleteTarget(null);
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
 
+  // NOTE: these summary counts now reflect only the *current filtered page*,
+  // not the whole branch — same tradeoff made on the Students page. If you
+  // need true branch-wide counts, add a lightweight dashboard endpoint
+  // rather than scanning all rows client-side.
   const active = groups.filter((g) => g.groupStatus === "ACTIVE").length;
   const completed = groups.filter((g) => g.groupStatus === "COMPLETED").length;
   const online = groups.filter((g) => g.deliveryMode === "ONLINE").length;
+
   const commonProps = {
     languages,
     instructors,
@@ -1414,7 +1588,7 @@ export default function Groups() {
     <div className="p-6">
       <PageHeader
         title="Groups"
-        subtitle={`${active} active · ${completed} completed · ${online} online`}
+        subtitle={`${totalCount} matching record${totalCount === 1 ? "" : "s"}`}
         action={
           <Button icon={Plus} onClick={() => setModal("create")}>
             New Group
@@ -1424,26 +1598,26 @@ export default function Groups() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="Active"
+          title="Active (page)"
           value={active}
           icon={BookOpen}
           color="bg-green-600"
         />
         <StatCard
-          title="Completed"
+          title="Completed (page)"
           value={completed}
           icon={BookOpen}
           color="bg-blue-500"
         />
         <StatCard
-          title="Online"
+          title="Online (page)"
           value={online}
           icon={BookOpen}
           color="bg-cyan-500"
         />
         <StatCard
-          title="Total"
-          value={groups.length}
+          title="Total (filtered)"
+          value={totalCount}
           icon={BookOpen}
           color="bg-primary-900"
         />
@@ -1453,111 +1627,108 @@ export default function Groups() {
         <div className="p-4 border-b dark:border-gray-700 space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <SearchInput
-              value={filters.search}
-              onChange={(v) => setFilter("search", v)}
+              value={searchInput}
+              onChange={setSearchInput}
               placeholder="Search group…"
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <select
-              value={filters.filterLang}
+              value={filters.filterLanguageId}
               onChange={(e) => {
-                setFilter("filterLang", e.target.value);
-                setFilter("filterLevel", "");
+                setFilter("filterLanguageId", e.target.value);
+                setFilter("filterLevelId", "");
               }}
               className="input w-36 text-sm"
             >
               <option value="">All Languages</option>
               {languages.map((l) => (
-                <option key={l.id} value={l.name}>
+                <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterLevel}
-              onChange={(e) => setFilter("filterLevel", e.target.value)}
+              value={filters.filterLevelId}
+              onChange={(e) => setFilter("filterLevelId", e.target.value)}
               className="input w-32 text-sm"
-              disabled={!filters.filterLang && levelsForFilter.length === 0}
+              disabled={!filters.filterLanguageId}
             >
               <option value="">All Levels</option>
-              {levelsForFilter.map((lv) => (
-                <option key={lv.languageLevelId ?? lv.id} value={lv.name}>
+              {levelOptions.map((lv) => (
+                <option key={lv.id} value={lv.id}>
                   {lv.name}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterInstructor}
-              onChange={(e) => setFilter("filterInstructor", e.target.value)}
+              value={filters.filterInstructorId}
+              onChange={(e) => setFilter("filterInstructorId", e.target.value)}
               className="input w-44 text-sm"
             >
               <option value="">All Instructors</option>
               {instructors.map((i) => (
-                <option
-                  key={i.id}
-                  value={`${i.person?.firstName} ${i.person?.lastName}`}
-                >
+                <option key={i.id} value={i.id}>
                   {i.person?.firstName} {i.person?.lastName}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterType}
-              onChange={(e) => setFilter("filterType", e.target.value)}
+              value={filters.filterTypeId}
+              onChange={(e) => setFilter("filterTypeId", e.target.value)}
               className="input w-36 text-sm"
             >
               <option value="">All Types</option>
               {types.map((t) => (
-                <option key={t.id} value={t.name}>
+                <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterMode}
-              onChange={(e) => setFilter("filterMode", e.target.value)}
+              value={filters.filterModeId}
+              onChange={(e) => setFilter("filterModeId", e.target.value)}
               className="input w-36 text-sm"
             >
               <option value="">All Modes</option>
               {modes.map((m) => (
-                <option key={m.id} value={m.name}>
+                <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterZoom}
-              onChange={(e) => setFilter("filterZoom", e.target.value)}
+              value={filters.filterZoomId}
+              onChange={(e) => setFilter("filterZoomId", e.target.value)}
               className="input w-44 text-sm"
             >
               <option value="">All Zoom Accounts</option>
               {zooms.map((z) => (
-                <option key={z.id} value={String(z.id)}>
+                <option key={z.id} value={z.id}>
                   {z.displayName}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterStatus}
-              onChange={(e) => setFilter("filterStatus", e.target.value)}
+              value={filters.filterStatusId}
+              onChange={(e) => setFilter("filterStatusId", e.target.value)}
               className="input w-40 text-sm"
             >
               <option value="">All Statuses</option>
               {statuses.map((s) => (
-                <option key={s.id} value={s.name}>
+                <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
               ))}
             </select>
             <select
-              value={filters.filterCat}
-              onChange={(e) => setFilter("filterCat", e.target.value)}
+              value={filters.filterCategoryId}
+              onChange={(e) => setFilter("filterCategoryId", e.target.value)}
               className="input w-40 text-sm"
             >
               <option value="">All Categories</option>
               {categories.map((c) => (
-                <option key={c.id} value={c.name}>
+                <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
@@ -1575,14 +1746,14 @@ export default function Groups() {
               <RotateCcw size={12} /> Reset Filters
             </button>
             <span className="text-xs text-gray-500 ml-auto">
-              {filtered.length} records
+              {totalCount} records{isFetching ? " · updating…" : ""}
             </span>
           </div>
         </div>
 
         <Table
           loading={isLoading}
-          data={filtered}
+          data={groups}
           emptyMsg="No groups found."
           columns={[
             { key: "name", label: "Name" },
@@ -1652,6 +1823,28 @@ export default function Groups() {
             },
           ]}
         />
+
+        <div className="flex items-center justify-between p-3 border-t dark:border-gray-700 text-sm">
+          <span className="text-gray-500">
+            Page {page} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
       </div>
 
       <Modal

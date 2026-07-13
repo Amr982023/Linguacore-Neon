@@ -48,6 +48,16 @@ const STATUS_LABELS = {
   EXPIRED: "EXPIRED",
 };
 
+// Applied to every useQuery on this page so data only reloads on a
+// deliberate user action (filter/search/page change, or a mutation's own
+// invalidateQueries) — never from window focus, remount, or reconnect.
+const NO_AUTO_REFETCH = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
+
 // ── WaitingForm ───────────────────────────────────────────────────────────────
 function WaitingForm({ initial, onSubmit, loading, languages = [] }) {
   const {
@@ -62,6 +72,7 @@ function WaitingForm({ initial, onSubmit, loading, languages = [] }) {
     queryKey: ["language-levels", selectedLanguageId],
     queryFn: () => lookupsApi.getLanguageLevels(selectedLanguageId),
     enabled: !!selectedLanguageId,
+    ...NO_AUTO_REFETCH,
   });
   const levels = lvlRes?.data?.data || [];
 
@@ -388,6 +399,7 @@ export default function WaitingList() {
     queryFn: () => waitingListApi.getByBranch(branchId, queryParams),
     enabled: !!branchId,
     keepPreviousData: true,
+    ...NO_AUTO_REFETCH,
   });
   const { data: alarmRes } = useQuery({
     queryKey: ["wl-alarm"],
@@ -397,14 +409,17 @@ export default function WaitingList() {
         page: 1,
         pageSize: 999,
       }),
+    ...NO_AUTO_REFETCH,
   });
   const { data: langRes } = useQuery({
     queryKey: ["languages"],
     queryFn: () => lookupsApi.getLanguages(),
+    ...NO_AUTO_REFETCH,
   });
   const { data: goalRes } = useQuery({
     queryKey: ["goals"],
     queryFn: () => lookupsApi.getGoals(),
+    ...NO_AUTO_REFETCH,
   });
 
   const pagedData = res?.data?.data;
@@ -444,6 +459,7 @@ export default function WaitingList() {
         status: "WAITING",
       }),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
   const { data: enrolledRes } = useQuery({
     queryKey: ["wl-count-enrolled", branchId],
@@ -454,6 +470,7 @@ export default function WaitingList() {
         status: "ENROLLED",
       }),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
   const { data: cancelledRes } = useQuery({
     queryKey: ["wl-count-cancelled", branchId],
@@ -464,6 +481,7 @@ export default function WaitingList() {
         status: "CANCELLED",
       }),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
   const waiting = waitingRes?.data?.data?.totalCount ?? 0;

@@ -1,4 +1,5 @@
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
@@ -25,6 +26,24 @@ public class GroupService : IGroupService
                 "The selected instructor is not qualified to teach this language.");
 
         return null;
+    }
+
+    public async Task<ApiResponse<PagedResponse<GroupResponse>>> GetByBranchPagedAsync(
+    Guid branchId, GroupFilterRequest filter)
+    {
+        var (entries, total) = await _uow.Groups.GetByBranchPagedAsync(
+            branchId,
+            filter.Page, filter.PageSize,
+            filter.Search, filter.LanguageId, filter.LevelId, filter.InstructorId,
+            filter.GroupCategoryId, filter.GroupTypeId, filter.DeliveryModeId,
+            filter.GroupStatusId, filter.ZoomAccountId, filter.HallId);
+
+        var items = entries.Select(MapToResponse).ToList();
+
+        return ApiResponse<PagedResponse<GroupResponse>>.Ok(
+            new PagedResponse<GroupResponse>(
+                items, total, filter.Page, filter.PageSize,
+                (int)Math.Ceiling(total / (double)filter.PageSize)));
     }
 
     public async Task<ApiResponse<GroupResponse>> CreateAsync(CreateGroupRequest req)

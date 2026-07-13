@@ -32,7 +32,92 @@ public class StudentRepository : GenericRepository<Student>, IStudentRepository
                         .ThenInclude(ll => ll.Level)
             .FirstOrDefaultAsync(s => s.QrCode == qrCode);
 
-    
+
+    /// <summary>
+    /// Paged + filtered branch listing. Filters on language/level operate against
+    /// the student's *active* enrollments (Pending/Active/Suspended/Partial),
+    /// same semantics as DeriveActiveLanguagesAndLevels in StudentService.
+    /// </summary>
+    public async Task<(IEnumerable<Student> Items, int TotalCount)> GetByBranchPagedAsync(
+        Guid branchId,
+        int page,
+        int pageSize,
+        string? search = null,
+        string? attendanceMode = null,
+        bool? isActive = null,
+        Guid? languageId = null,
+        Guid? levelId = null,
+        Guid? goalId = null,
+        Guid? nestedGoalId = null)
+    {
+        var query = _dbSet
+            .Include(s => s.Person)
+            .Include(s => s.Goal)
+            .Include(s => s.NestedGoal)
+            .Include(s => s.Enrollments).ThenInclude(e => e.EnrollStatus)
+            .Include(s => s.Enrollments).ThenInclude(e => e.Group).ThenInclude(g => g.LanguageLevel).ThenInclude(ll => ll.Language)
+            .Include(s => s.Enrollments).ThenInclude(e => e.Group).ThenInclude(g => g.LanguageLevel).ThenInclude(ll => ll.Level)
+            .Where(s => s.BranchId == branchId);
+
+        query = ApplyFilters(query, search, attendanceMode, isActive, languageId, levelId, goalId, nestedGoalId);
+
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(s => s.Person.FirstName).ThenBy(s => s.Person.LastName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+    private static IQueryable<Student> ApplyFilters(
+        IQueryable<Student> query,
+        string? search,
+        string? attendanceMode,
+        bool? isActive,
+        Guid? languageId,
+        Guid? levelId,
+        Guid? goalId,
+        Guid? nestedGoalId)
+    {
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(s =>
+                EF.Functions.ILike(s.Person.FirstName + " " + s.Person.LastName, $"%{term}%") ||
+                (s.Person.Phone != null && s.Person.Phone.Contains(term)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(attendanceMode))
+            query = query.Where(s => s.AttendanceMode == attendanceMode.ToUpper());
+
+        if (isActive.HasValue)
+            query = query.Where(s => s.IsActive == isActive.Value);
+
+        if (goalId.HasValue)
+            query = query.Where(s => s.GoalId == goalId.Value);
+
+        if (nestedGoalId.HasValue)
+            query = query.Where(s => s.NestedGoalId == nestedGoalId.Value);
+
+        if (languageId.HasValue)
+            query = query.Where(s => s.Enrollments.Any(e =>
+                e.EnrollStatus != null &&
+                ActiveStatuses.Contains(e.EnrollStatus.Name.ToUpper()) &&
+                e.Group.LanguageLevel.LanguageId == languageId.Value));
+
+        if (levelId.HasValue)
+            query = query.Where(s => s.Enrollments.Any(e =>
+                e.EnrollStatus != null &&
+                ActiveStatuses.Contains(e.EnrollStatus.Name.ToUpper()) &&
+                e.Group.LanguageLevel.LevelId == levelId.Value));
+
+        return query;
+    }
+
+
     public async Task<IEnumerable<Student>> GetByBranchAsync(Guid branchId)
         => await _dbSet
             .Include(s => s.Person)

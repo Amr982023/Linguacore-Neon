@@ -39,6 +39,23 @@ const fmt = (n) =>
   Number(n || 0).toLocaleString("en-EG", { minimumFractionDigits: 2 }) + " EGP";
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
 
+// ── React Query defaults for this page ────────────────────────────────────────
+// Payments/Debts/Refunds/Groups/Lookups should only ever fetch:
+//   1) on first mount, or
+//   2) when the query key changes (branchId / month / year filters), or
+//   3) when a mutation explicitly calls invalidate().
+// They must NOT silently refetch on window focus, reconnect, or because
+// staleTime elapsed while the tab was open. A finite staleTime meant React
+// Query treated the data as stale in the background and refetched it on the
+// next focus event — that's the "auto re-render" this page was showing.
+const QUERY_DEFAULTS = {
+  staleTime: Infinity,
+  gcTime: 30 * 60 * 1000,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
+
 // ── Month / Year filter constants ─────────────────────────────────────────────
 const MONTH_NAMES = [
   "January",
@@ -731,22 +748,23 @@ export default function Payments() {
   // (i.e. on page mount), regardless of which tab is active. Tabs just
   // toggle which already-loaded dataset is rendered — they no longer
   // gate the network request itself. The date window (FROM_ISO/TO_ISO) is
-  // now driven by the month/year filters below, so changing either
-  // automatically refetches all three period-scoped queries.
+  // driven by the month/year filters below, so changing either
+  // automatically refetches all three period-scoped queries — but nothing
+  // else (focus, reconnect, remount, timed staleness) triggers a refetch.
   const { data: pmtRes, isLoading: pmtLoading } = useQuery({
     queryKey: ["payments-period", branchId, FROM_ISO, TO_ISO],
     queryFn: () => paymentsApi.getByPeriod(branchId, FROM_ISO, TO_ISO),
     enabled: !!branchId,
-    staleTime: 5 * 60 * 1000,
     placeholderData: (prev) => prev,
+    ...QUERY_DEFAULTS,
   });
 
   const { data: debtRes, isLoading: debtLoading } = useQuery({
     queryKey: ["payment-debts", branchId, FROM_ISO, TO_ISO],
     queryFn: () => paymentsApi.getDebts(branchId, FROM_ISO, TO_ISO),
     enabled: !!branchId,
-    staleTime: 5 * 60 * 1000,
     placeholderData: (prev) => prev,
+    ...QUERY_DEFAULTS,
   });
 
   const { data: refundRes, isLoading: refundLoading } = useQuery({
@@ -754,30 +772,35 @@ export default function Payments() {
     queryFn: () =>
       enrollmentsApi.getRefundsByBranch(branchId, FROM_ISO, TO_ISO),
     enabled: !!branchId,
-    staleTime: 5 * 60 * 1000,
     placeholderData: (prev) => prev,
+    ...QUERY_DEFAULTS,
   });
 
   const { data: grpRes } = useQuery({
     queryKey: ["groups", branchId],
     queryFn: () => groupsApi.getByBranch(branchId),
     enabled: !!branchId,
+    ...QUERY_DEFAULTS,
   });
   const { data: mthRes } = useQuery({
     queryKey: ["pay-methods"],
     queryFn: lookupsApi.getPaymentMethods,
+    ...QUERY_DEFAULTS,
   });
   const { data: langRes } = useQuery({
     queryKey: ["languages"],
     queryFn: lookupsApi.getLanguages,
+    ...QUERY_DEFAULTS,
   });
   const { data: levelsRes } = useQuery({
     queryKey: ["levels"],
     queryFn: lookupsApi.getLevels,
+    ...QUERY_DEFAULTS,
   });
   const { data: periodRes } = useQuery({
     queryKey: ["period-labels"],
     queryFn: lookupsApi.getPeriodLabels,
+    ...QUERY_DEFAULTS,
   });
 
   const payments = pmtRes?.data?.data || [];

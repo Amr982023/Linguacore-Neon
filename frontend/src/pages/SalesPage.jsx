@@ -48,6 +48,16 @@ const ICONS = {
 
 const PAGE_SIZE = 8;
 
+// Applied to every useQuery on this page so data only reloads on a
+// deliberate user action (filter change, page click, or a mutation's own
+// invalidateQueries) — never from window focus, remount, or reconnect.
+const NO_AUTO_REFETCH = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
+
 function StatCard({ icon: Icon, label, total, count, gradient }) {
   return (
     <div
@@ -86,6 +96,7 @@ export default function SalesPage() {
   const { data: categoriesRes } = useQuery({
     queryKey: ["store-categories"],
     queryFn: storeApi.getCategories,
+    ...NO_AUTO_REFETCH,
   });
   const categories = categoriesRes?.data?.data ?? [];
 
@@ -93,6 +104,7 @@ export default function SalesPage() {
     queryKey: ["store-items", branchId, selectedCategory, false],
     queryFn: () => storeApi.getItems(branchId, selectedCategory, false),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
   const items = itemsRes?.data?.data ?? [];
 
@@ -100,6 +112,7 @@ export default function SalesPage() {
     queryKey: ["sales-stats", branchId],
     queryFn: () => salesApi.getStats(branchId),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
   const stats = statsRes?.data?.data;
 
@@ -117,6 +130,7 @@ export default function SalesPage() {
     queryFn: () => salesApi.getSales(branchId, fromIso, toIso, page, PAGE_SIZE),
     enabled: !!branchId,
     keepPreviousData: true, // avoids a flash of "no sales" while flipping pages
+    ...NO_AUTO_REFETCH,
   });
   const salesPage = salesRes?.data?.data; // PagedResult<SaleResponse>
   const sales = salesPage?.items ?? [];

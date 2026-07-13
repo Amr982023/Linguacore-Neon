@@ -23,7 +23,6 @@ import Certificates from "./pages/Certificates";
 import WaitingList from "./pages/WaitingList";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
-import FirebaseSync from "./pages/FirebaseSync";
 import UsersPage from "./pages/Users";
 import UserProfile from "./pages/UserProfile";
 import Layout from "./components/Layout";
@@ -247,14 +246,6 @@ export default function App() {
             element={
               <PermRoute perm="notificationsRead">
                 <Notifications />
-              </PermRoute>
-            }
-          />
-          <Route
-            path="firebase-sync"
-            element={
-              <PermRoute perm="isSuperAdmin">
-                <FirebaseSync />
               </PermRoute>
             }
           />

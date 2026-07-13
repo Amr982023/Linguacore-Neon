@@ -1,6 +1,8 @@
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
+using LinguaCore.Domain.Common;
 using LinguaCore.Domain.Entities;
 using LinguaCore.Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -264,12 +266,70 @@ public class PaymentService : IPaymentService
         return ApiResponse<IEnumerable<PaymentResponse>>.Ok(payments.Select(MapToResponse));
     }
 
+    public async Task<ApiResponse<PagedResults<PaymentResponse>>> GetByPeriodPagedAsync(
+    PaymentFilterRequest req)
+    {
+        // ── DTO unpacking happens here, at the service layer — the repository
+        // only ever sees plain parameters. ─────────────────────────────────────
+        var result = await _uow.Payments.GetByPeriodPagedAsync(
+            req.BranchId,
+            req.From,
+            req.To,
+            req.Page,
+            req.PageSize,
+            req.Search,
+            req.LanguageId,
+            req.LevelId,
+            req.PaymentMethodId,
+            req.GroupId,
+            req.Status);
+
+        var mapped = new PagedResults<PaymentResponse>
+        {
+            Items = result.Items.Select(MapToResponse).ToList(),
+            Page = result.Page,
+            PageSize = result.PageSize,
+            TotalCount = result.TotalCount,
+        };
+
+        return ApiResponse<PagedResults<PaymentResponse>>.Ok(mapped);
+    }
+
     public async Task<ApiResponse<IEnumerable<PaymentResponse>>> GetByPeriodAsync(Guid branchId, DateTime from, DateTime to)
     {
         var payments = await _uow.Payments.GetByPeriodAsync(from, to);
         var filtered = payments.Where(p =>
             p.Enrollment?.Group?.BranchId == branchId);
         return ApiResponse<IEnumerable<PaymentResponse>>.Ok(filtered.Select(MapToResponse));
+    }
+
+    public async Task<ApiResponse<PagedResults<CommissionLedgerResponse>>> GetCommissionByInstructorPagedAsync(
+    CommissionLedgerFilterRequest req)
+    {
+        var (ledgers, totalCount) = await _uow.CommissionLedgers.GetByInstructorPagedAsync(
+            req.InstructorId, req.From, req.To, req.Page, req.PageSize);
+
+        var mapped = new PagedResults<CommissionLedgerResponse>
+        {
+            Items = ledgers.Select(l => new CommissionLedgerResponse(
+                l.Id,
+                l.Instructor?.Person is null ? "" : $"{l.Instructor.Person.FirstName} {l.Instructor.Person.LastName}",
+                l.Group?.Name ?? "",
+                l.Group?.PaymentStrategy ?? "MONTHLY",
+                l.CommissionPct,
+                l.GrossPayment,
+                l.CommissionAmount,
+                l.CentreAmount,
+                l.Payment?.PeriodLabel?.Name ?? "",
+                l.IsAdjustment,
+                l.PeriodLabel,
+                l.CreatedAt)).ToList(),
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalCount = totalCount,
+        };
+
+        return ApiResponse<PagedResults<CommissionLedgerResponse>>.Ok(mapped);
     }
 
     public async Task<ApiResponse<IEnumerable<CommissionLedgerResponse>>> GetCommissionByInstructorAsync(

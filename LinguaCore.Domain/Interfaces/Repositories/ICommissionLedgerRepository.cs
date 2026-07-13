@@ -8,4 +8,8 @@ public interface ICommissionLedgerRepository : IGenericRepository<CommissionLedg
     Task<IEnumerable<CommissionLedger>> GetByGroupAsync(Guid groupId);
     Task<decimal> GetTotalCommissionAsync(Guid instructorId, DateTime from, DateTime to);
     Task<IEnumerable<CommissionLedger>> GetBySessionAsync(Guid sessionId);
+
+    // New: offset-paginated instructor commission history
+    Task<(IEnumerable<CommissionLedger> Items, int TotalCount)> GetByInstructorPagedAsync(
+        Guid instructorId, DateTime? from, DateTime? to, int page, int pageSize);
 }

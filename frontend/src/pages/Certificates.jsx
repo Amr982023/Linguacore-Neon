@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { certificatesApi, groupsApi } from "../services/endpoints";
+import { certificatesApi, groupsApi, lookupsApi } from "../services/endpoints";
 import { useAuthStore } from "../context/authStore";
 import {
   PageHeader,
@@ -10,9 +10,21 @@ import {
   StatCard,
   SearchInput,
 } from "../components/ui";
-import { Award, Eye, Printer } from "lucide-react";
+import { Award, Eye, Printer, ChevronLeft, ChevronRight } from "lucide-react";
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
+
+const PAGE_SIZE = 10;
+
+// Applied to every useQuery on this page so data only reloads on a
+// deliberate user action (filter/search/page change) — never from window
+// focus, remount, or reconnect.
+const NO_AUTO_REFETCH = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+};
 
 function CertificateDetailModal({ cert, onClose }) {
   return (
@@ -48,70 +60,142 @@ function CertificateDetailModal({ cert, onClose }) {
   );
 }
 
+// ── Pagination ────────────────────────────────────────────────────────────────
+function Pagination({ page, totalPages, totalCount, pageSize, onPageChange }) {
+  if (totalCount === 0) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalCount);
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
+      <span>
+        {from}–{to} of {totalCount} records
+      </span>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page === 1}
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30"
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-xs text-gray-400 px-1">
+          Page {page} of {totalPages}
+        </span>
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page === totalPages}
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Certificates() {
   const { branchId } = useAuthStore();
   const navigate = useNavigate();
 
-  const [search, setSearch] = useState("");
-  const [langFilter, setLangFilter] = useState("");
-  const [levelFilter, setLevelFilter] = useState("");
-  const [groupFilter, setGroupFilter] = useState("");
+  const [searchInput, setSearchInput] = useState(""); // what's being typed
+  const [search, setSearch] = useState(""); // what's actually committed/queried
+  const [langFilter, setLangFilter] = useState(""); // languageId
+  const [levelFilter, setLevelFilter] = useState(""); // levelId
+  const [groupFilter, setGroupFilter] = useState(""); // groupId
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
 
-  const { data: res, isLoading } = useQuery({
-    queryKey: ["certificates", branchId],
-    queryFn: () => certificatesApi.getByBranch(branchId),
+  // Reset to page 1 whenever any filter changes — otherwise you can get stuck
+  // on page 4 of a filtered result that only has 1 page.
+  useEffect(() => {
+    setPage(1);
+  }, [search, langFilter, levelFilter, groupFilter]);
+
+  const commitSearch = () => setSearch(searchInput.trim());
+
+  const filter = {
+    search: search || undefined,
+    languageId: langFilter || undefined,
+    levelId: levelFilter || undefined,
+    groupId: groupFilter || undefined,
+    page,
+    pageSize: PAGE_SIZE,
+  };
+
+  const {
+    data: res,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: [
+      "certificates",
+      branchId,
+      search,
+      langFilter,
+      levelFilter,
+      groupFilter,
+      page,
+    ],
+    queryFn: () => certificatesApi.getByBranchPaged(branchId, filter),
     enabled: !!branchId,
+    keepPreviousData: true, // avoids a flash of "no certificates" while flipping pages
+    ...NO_AUTO_REFETCH,
   });
 
   const { data: groupsRes } = useQuery({
     queryKey: ["groups", branchId],
     queryFn: () => groupsApi.getByBranch(branchId),
     enabled: !!branchId,
+    ...NO_AUTO_REFETCH,
   });
 
-  const certs = res?.data?.data || [];
+  // Language/level options come from lookups, not from the loaded page of
+  // certificates — with server-side pagination the visible page is only a
+  // slice, so deriving filter options from it would hide options that exist
+  // on other pages.
+  const { data: languagesRes } = useQuery({
+    queryKey: ["languages"],
+    queryFn: () => lookupsApi.getLanguages(),
+    ...NO_AUTO_REFETCH,
+  });
+
+  const { data: levelsRes } = useQuery({
+    queryKey: ["levels"],
+    queryFn: () => lookupsApi.getLevels(),
+    ...NO_AUTO_REFETCH,
+  });
+
+  const pagedData = res?.data?.data;
+  const certs = pagedData?.items ?? [];
+  const totalCount = pagedData?.totalCount ?? 0;
+  const totalPages = pagedData?.totalPages ?? 1;
+
   const groups = groupsRes?.data?.data || [];
+  const languages = languagesRes?.data?.data || [];
+  const levels = levelsRes?.data?.data || [];
 
-  const languages = [
-    ...new Map(
-      certs
-        .filter((c) => c.languageName)
-        .map((c) => [
-          c.languageName,
-          { id: c.languageName, name: c.languageName },
-        ]),
-    ).values(),
-  ];
+  const isAnyFilterActive =
+    search !== "" ||
+    langFilter !== "" ||
+    levelFilter !== "" ||
+    groupFilter !== "";
 
-  const levels = [
-    ...new Map(
-      certs
-        .filter((c) => c.levelCode)
-        .map((c) => [c.levelCode, { id: c.levelCode, code: c.levelCode }]),
-    ).values(),
-  ];
-
-  const filtered = certs.filter((c) => {
-    const q = search.toLowerCase();
-    const matchSearch =
-      !q ||
-      c.studentName?.toLowerCase().includes(q) ||
-      c.serialNumber?.toLowerCase().includes(q);
-    const matchLang = !langFilter || c.languageName === langFilter;
-    const matchLevel = !levelFilter || c.levelCode === levelFilter;
-    const matchGroup = !groupFilter || c.groupId === groupFilter;
-    return matchSearch && matchLang && matchLevel && matchGroup;
-  });
+  const resetFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setLangFilter("");
+    setLevelFilter("");
+    setGroupFilter("");
+  };
 
   return (
     <div className="p-6">
-      <PageHeader title="Certificates" subtitle={`${certs.length} issued`} />
+      <PageHeader title="Certificates" subtitle={`${totalCount} issued`} />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard
           title="Total Issued"
-          value={certs.length}
+          value={totalCount}
           color="bg-blue-600"
           icon={Award}
         />
@@ -122,12 +206,8 @@ export default function Certificates() {
           icon={Award}
         />
         <StatCard
-          title="This Month"
-          value={
-            certs.filter(
-              (c) => new Date(c.issuedAt) > new Date(new Date().setDate(1)),
-            ).length
-          }
+          title="This Page"
+          value={certs.length}
           color="bg-green-600"
           icon={Award}
         />
@@ -136,10 +216,17 @@ export default function Certificates() {
       <div className="card">
         <div className="p-4 border-b dark:border-gray-700 flex flex-wrap items-center gap-3">
           <SearchInput
-            value={search}
-            onChange={setSearch}
+            value={searchInput}
+            onChange={setSearchInput}
+            onKeyDown={(e) => e.key === "Enter" && commitSearch()}
             placeholder="Search name or serial…"
           />
+          <button
+            onClick={commitSearch}
+            className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-600"
+          >
+            Search
+          </button>
 
           <select
             className="input w-40"
@@ -148,7 +235,7 @@ export default function Certificates() {
           >
             <option value="">All Languages</option>
             {languages.map((l) => (
-              <option key={l.id} value={l.name}>
+              <option key={l.id} value={l.id}>
                 {l.name}
               </option>
             ))}
@@ -161,7 +248,7 @@ export default function Certificates() {
           >
             <option value="">All Levels</option>
             {levels.map((l) => (
-              <option key={l.id} value={l.code}>
+              <option key={l.id} value={l.id}>
                 {l.code}
               </option>
             ))}
@@ -180,55 +267,74 @@ export default function Certificates() {
             ))}
           </select>
 
+          {isAnyFilterActive && (
+            <button
+              onClick={resetFilters}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Reset filters
+            </button>
+          )}
+
           <span className="text-xs text-gray-500 ml-auto">
-            {filtered.length} records
+            {totalCount} records
           </span>
         </div>
 
-        <Table
-          loading={isLoading}
-          data={filtered}
-          emptyMsg="No certificates issued yet."
-          columns={[
-            { key: "studentName", label: "Student" },
-            {
-              key: "language",
-              label: "Language",
-              render: (r) => `${r.languageName} ${r.levelCode}`,
-            },
-            { key: "serialNumber", label: "Serial No." },
-            {
-              key: "score",
-              label: "Score",
-              render: (r) =>
-                r.marksObtained ? `${r.marksObtained}/${r.totalMarks}` : "—",
-            },
-            {
-              key: "issuedAt",
-              label: "Issued",
-              render: (r) => fmtDate(r.issuedAt),
-            },
-            {
-              key: "actions",
-              label: "",
-              render: (r) => (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setSelected(r)}
-                    className="text-blue-500 hover:text-blue-700 flex items-center gap-1 text-xs"
-                  >
-                    <Eye size={13} /> View
-                  </button>
-                  <button
-                    onClick={() => navigate(`/certificates/${r.id}/print`)}
-                    className="text-green-600 hover:text-green-800 flex items-center gap-1 text-xs"
-                  >
-                    <Printer size={13} /> Print
-                  </button>
-                </div>
-              ),
-            },
-          ]}
+        <div className={`transition-opacity ${isFetching ? "opacity-60" : ""}`}>
+          <Table
+            loading={isLoading}
+            data={certs}
+            emptyMsg="No certificates issued yet."
+            columns={[
+              { key: "studentName", label: "Student" },
+              {
+                key: "language",
+                label: "Language",
+                render: (r) => `${r.languageName} ${r.levelCode}`,
+              },
+              { key: "serialNumber", label: "Serial No." },
+              {
+                key: "score",
+                label: "Score",
+                render: (r) =>
+                  r.marksObtained ? `${r.marksObtained}/${r.totalMarks}` : "—",
+              },
+              {
+                key: "issuedAt",
+                label: "Issued",
+                render: (r) => fmtDate(r.issuedAt),
+              },
+              {
+                key: "actions",
+                label: "",
+                render: (r) => (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelected(r)}
+                      className="text-blue-500 hover:text-blue-700 flex items-center gap-1 text-xs"
+                    >
+                      <Eye size={13} /> View
+                    </button>
+                    <button
+                      onClick={() => navigate(`/certificates/${r.id}/print`)}
+                      className="text-green-600 hover:text-green-800 flex items-center gap-1 text-xs"
+                    >
+                      <Printer size={13} /> Print
+                    </button>
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </div>
+
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
         />
       </div>
 

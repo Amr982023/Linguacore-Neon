@@ -12,6 +12,8 @@ export const authApi = {
 
 export const studentsApi = {
   getByBranch: (branchId) => api.get(`/students/branch/${branchId}`),
+  getByBranchPaged: (branchId, params) =>
+    api.get(`/students/branch/${branchId}/paged`, { params }),
   getById: (id) => api.get(`/students/${id}`),
   getByQr: (qrCode) => api.get(`/students/qr/${qrCode}`),
   create: (data) => api.post("/students", data),
@@ -31,6 +33,8 @@ export const instructorsApi = {
 
 export const groupsApi = {
   getByBranch: (branchId) => api.get(`/groups/branch/${branchId}`),
+  getByBranchPaged: (branchId, params) =>
+    api.get(`/groups/branch/${branchId}/paged`, { params }),
   getByLanguageLevel: (languageId, levelId, branchId) =>
     api.get(`/groups/language-level`, {
       params: { languageId, levelId, branchId },
@@ -95,6 +99,8 @@ export const examsApi = {
 
 export const certificatesApi = {
   getByBranch: (branchId) => api.get(`/certificates/branch/${branchId}`),
+  getByBranchPaged: (branchId, filter) =>
+    api.get(`/certificates/branch/${branchId}/paged`, { params: filter }),
   getById: (id) => api.get(`/certificates/${id}`),
 };
 
@@ -103,12 +109,27 @@ export const paymentsApi = {
     api.get(`/payments/enrollment/${enrollmentId}`),
   getByGroup: (groupId) => api.get(`/payments/group/${groupId}`),
   create: (data) => api.post("/payments", data),
+
+  // Legacy, unpaginated — kept until callers are migrated
   getCommission: (instructorId, from, to) =>
     api.get(`/payments/commission/instructor/${instructorId}`, {
       params: { from, to },
     }),
+
+  // New: offset-paginated instructor commission history
+  getCommissionPaged: (instructorId, filter) =>
+    api.get(`/payments/commission/instructor/${instructorId}/paged`, {
+      params: filter, // { from, to, page, pageSize } — axios drops undefined keys
+    }),
+
+  // Legacy, unpaginated — kept until callers are migrated
   getByPeriod: (branchId, from, to) =>
     api.get("/payments/period", { params: { branchId, from, to } }),
+
+  // New: offset-paginated, server-side filtered
+  getByPeriodPaged: (filter) =>
+    api.get("/payments/period/paged", { params: filter }),
+
   getClosings: (instructorId) =>
     api.get(`/payments/closing/instructor/${instructorId}`),
   getDebts: (branchId, from, to) =>
@@ -388,6 +409,10 @@ export const centerDeductionsApi = {
   getByBranch: (branchId, from, to) =>
     api.get(`/centerdeduction/branch/${branchId}`, {
       params: { ...(from && { from }), ...(to && { to }) },
+    }),
+  getByBranchPaged: (branchId, filter) =>
+    api.get(`/centerdeduction/branch/${branchId}/paged`, {
+      params: filter, // { from, to, search, page, pageSize } — axios drops undefined keys
     }),
 };
 

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
@@ -94,6 +95,18 @@ public class SalesService : ISalesService
         pageSize = pageSize is < 1 or > 100 ? 8 : pageSize; // hard cap so a bad query param can't force a huge scan
 
         var (sales, totalCount) = await _uow.Sales.GetByBranchPagedAsync(branchId, from, to, page, pageSize);
+        return ApiResponse<PagedResult<SaleResponse>>.Ok(
+            new PagedResult<SaleResponse>(sales.Select(MapSale), totalCount, page, pageSize));
+    }
+
+    public async Task<ApiResponse<PagedResult<SaleResponse>>> GetSalesAsync(SaleFilterRequest filter)
+    {
+        var page = filter.Page < 1 ? 1 : filter.Page;
+        var pageSize = filter.PageSize is < 1 or > 100 ? 8 : filter.PageSize; // same hard cap as before
+
+        var (sales, totalCount) = await _uow.Sales.GetByBranchPagedAsync(
+            filter.BranchId, filter.From, filter.To, page, pageSize);
+
         return ApiResponse<PagedResult<SaleResponse>>.Ok(
             new PagedResult<SaleResponse>(sales.Select(MapSale), totalCount, page, pageSize));
     }

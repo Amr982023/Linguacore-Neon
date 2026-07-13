@@ -1,14 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import {
-  studentsApi,
-  lookupsApi,
-  enrollmentsApi,
-  examsApi,
-} from "../services/endpoints";
+import { studentsApi, lookupsApi } from "../services/endpoints";
 import { useAuthStore } from "../context/authStore";
 import {
   PageHeader,
@@ -30,15 +25,17 @@ import {
   QrCode,
   Users,
   UserX,
-  Award,
   Languages,
   RotateCcw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // ── Validation helpers ───────────────────────────────────────────────────────
 const PHONE_RE = /^[0-9+\s\-()]{7,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NATIONAL_ID_RE = /^[0-9]{14}$/;
+const PAGE_SIZE = 20;
 
 // ── Student Form ─────────────────────────────────────────────────────────────
 function StudentForm({
@@ -52,26 +49,21 @@ function StudentForm({
     register,
     handleSubmit,
     watch,
-    setValue, // ← added
+    setValue,
     formState: { errors },
   } = useForm({ defaultValues: initial });
 
   const selectedGoalId = watch("goalId");
   const filteredNested = nestedGoals.filter((n) => n.goalId === selectedGoalId);
 
-  // ← Reset nestedGoalId whenever the parent goal changes
   const handleGoalChange = (e) => {
     setValue("goalId", e.target.value);
     setValue("nestedGoalId", "");
   };
 
-  const handleValid = (data) => {
-    onSubmit(data);
-  };
-
-  const handleInvalid = () => {
+  const handleValid = (data) => onSubmit(data);
+  const handleInvalid = () =>
     toast.error("Please fix the highlighted fields before submitting.");
-  };
 
   return (
     <form
@@ -187,7 +179,6 @@ function StudentForm({
       />
 
       <div className="grid grid-cols-2 gap-3">
-        {/* Goal — uses handleGoalChange to reset nestedGoalId */}
         <Select
           label="Goal"
           {...register("goalId")}
@@ -201,7 +192,6 @@ function StudentForm({
           ))}
         </Select>
 
-        {/* Sub-Goal — value is controlled by RHF; cleared on goal change */}
         <Select
           label="Sub-Goal"
           {...register("nestedGoalId")}
@@ -245,90 +235,175 @@ export default function Students() {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
-  const [search, setSearch] = useState("");
+  // ── Filter/pagination state ────────────────────────────────────────────
+  const [searchInput, setSearchInput] = useState(""); // raw input, debounced below
+  const [search, setSearch] = useState(""); // debounced value actually sent to server
   const [filterMode, setFilterMode] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterLang, setFilterLang] = useState("");
-  const [filterLevel, setFilterLevel] = useState("");
+  const [filterStatus, setFilterStatus] = useState(""); // "" | "active" | "inactive"
+  const [filterLanguageId, setFilterLanguageId] = useState("");
+  const [filterLevelId, setFilterLevelId] = useState("");
   const [filterGoal, setFilterGoal] = useState("");
   const [filterNestedGoal, setFilterNestedGoal] = useState("");
+  const [page, setPage] = useState(1);
+
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+
+  // Debounce free-text search so we don't fire a request per keystroke
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Reset to page 1 whenever any filter (other than search, handled above) changes
+  useEffect(() => {
+    setPage(1);
+  }, [
+    filterMode,
+    filterStatus,
+    filterLanguageId,
+    filterLevelId,
+    filterGoal,
+    filterNestedGoal,
+  ]);
 
   const isAnyFilterActive =
     !!search ||
     !!filterMode ||
     !!filterStatus ||
-    !!filterLang ||
-    !!filterLevel ||
+    !!filterLanguageId ||
+    !!filterLevelId ||
     !!filterGoal ||
     !!filterNestedGoal;
 
   const resetFilters = () => {
+    setSearchInput("");
     setSearch("");
     setFilterMode("");
     setFilterStatus("");
-    setFilterLang("");
-    setFilterLevel("");
+    setFilterLanguageId("");
+    setFilterLevelId("");
     setFilterGoal("");
     setFilterNestedGoal("");
+    setPage(1);
   };
 
-  const { data: res, isLoading } = useQuery({
-    queryKey: ["students", branchId],
-    queryFn: () => studentsApi.getByBranch(branchId),
+  // ── Server params for the current page/filter combo ───────────────────
+  const queryParams = useMemo(
+    () => ({
+      page,
+      pageSize: PAGE_SIZE,
+      search: search || undefined,
+      attendanceMode: filterMode || undefined,
+      isActive:
+        filterStatus === "active"
+          ? true
+          : filterStatus === "inactive"
+            ? false
+            : undefined,
+      languageId: filterLanguageId || undefined,
+      levelId: filterLevelId || undefined,
+      goalId: filterGoal || undefined,
+      nestedGoalId: filterNestedGoal || undefined,
+    }),
+    [
+      page,
+      search,
+      filterMode,
+      filterStatus,
+      filterLanguageId,
+      filterLevelId,
+      filterGoal,
+      filterNestedGoal,
+    ],
+  );
+
+  const queryKey = ["students", branchId, queryParams];
+
+  // ── Queries — all automatic refetch triggers OFF. Only the user's own
+  // actions (typing a filter, changing page, or a mutation) drive a refetch.
+  const {
+    data: res,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey,
+    queryFn: () => studentsApi.getByBranchPaged(branchId, queryParams),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    keepPreviousData: true,
   });
+
   const { data: gRes } = useQuery({
     queryKey: ["goals"],
     queryFn: lookupsApi.getGoals,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
+
   const { data: langRes } = useQuery({
     queryKey: ["languages"],
     queryFn: lookupsApi.getLanguages,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const students = res?.data?.data || [];
+  // Levels for the currently selected filter language.
+  // Confirmed shape: GetLanguageLevelsAsync returns IEnumerable<LookupResponse>,
+  // i.e. plain { id, name } — id here IS the real Level.Id (LevelRepository
+  // returns Level entities directly), which is exactly what the backend
+  // filter matches against (Group.LanguageLevel.LevelId). No fallback needed.
+  const { data: levelsRes } = useQuery({
+    queryKey: ["languageLevels", filterLanguageId],
+    queryFn: () => lookupsApi.getLanguageLevels(filterLanguageId),
+    enabled: !!filterLanguageId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
+  const students = res?.data?.data?.items || [];
+  const totalCount = res?.data?.data?.totalCount || 0;
+  const totalPages = res?.data?.data?.totalPages || 1;
+
   const goals = gRes?.data?.data || [];
   const languages = langRes?.data?.data || [];
   const nestedGoals = goals.flatMap((g) =>
     (g.nestedGoals || []).map((n) => ({ ...n, goalId: g.id })),
   );
+  const levelOptions = levelsRes?.data?.data || [];
 
   const filteredNestedGoalOptions = filterGoal
     ? nestedGoals.filter((n) => n.goalId === filterGoal)
     : nestedGoals;
 
-  const allLevelOptions = [
-    ...new Set(
-      students
-        .filter(
-          (s) => !filterLang || (s.activeLanguages || []).includes(filterLang),
-        )
-        .flatMap((s) => s.activeLevels || []),
-    ),
-  ].sort();
-
-  const filtered = students.filter((s) => {
-    const name =
-      `${s.person?.firstName || ""} ${s.person?.lastName || ""}`.toLowerCase();
-    const q = search.toLowerCase();
-    if (q && !name.includes(q) && !(s.person?.phone || "").includes(q))
-      return false;
-    if (filterMode && s.attendanceMode !== filterMode) return false;
-    if (filterStatus === "active" && !s.isActive) return false;
-    if (filterStatus === "inactive" && s.isActive) return false;
-    if (filterLang && !(s.activeLanguages || []).includes(filterLang))
-      return false;
-    if (filterLevel && !(s.activeLevels || []).includes(filterLevel))
-      return false;
-    if (filterGoal && s.goalId !== filterGoal) return false;
-    if (filterNestedGoal && s.nestedGoalId !== filterNestedGoal) return false;
-    return true;
-  });
-
-  const invalidate = () => qc.invalidateQueries(["students"]);
+  // ── Cache patching helpers (no invalidateQueries — direct local patch) ─
+  const patchStudents = (updater) => {
+    qc.setQueryData(queryKey, (old) => {
+      if (!old) return old;
+      const items = old.data?.data?.items || [];
+      return {
+        ...old,
+        data: {
+          ...old.data,
+          data: { ...old.data.data, items: updater(items) },
+        },
+      };
+    });
+  };
 
   const createMut = useMutation({
     mutationFn: (d) =>
@@ -338,9 +413,12 @@ export default function Students() {
         goalId: d.goalId || null,
         nestedGoalId: d.nestedGoalId || null,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      const newStudent = response?.data?.data;
       toast.success("Student created");
-      invalidate();
+      if (newStudent) {
+        patchStudents((items) => [newStudent, ...items].slice(0, PAGE_SIZE));
+      }
       setModal(null);
     },
     onError: (e) =>
@@ -355,9 +433,14 @@ export default function Students() {
         goalId: d.goalId || null,
         nestedGoalId: d.nestedGoalId || null,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      const updated = response?.data?.data;
       toast.success("Student updated");
-      invalidate();
+      if (updated) {
+        patchStudents((items) =>
+          items.map((s) => (s.id === updated.id ? updated : s)),
+        );
+      }
       setModal(null);
     },
     onError: (e) =>
@@ -366,14 +449,16 @@ export default function Students() {
 
   const deactMut = useMutation({
     mutationFn: (id) => studentsApi.deactivate(id),
-    onSuccess: (response) => {
+    onSuccess: (response, id) => {
       const data = response?.data;
       if (data?.success === false) {
         toast.error(data?.message || "Cannot deactivate student.");
         return;
       }
       toast.success("Student deactivated");
-      invalidate();
+      patchStudents((items) =>
+        items.map((s) => (s.id === id ? { ...s, isActive: false } : s)),
+      );
       setConfirmId(null);
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
@@ -381,22 +466,23 @@ export default function Students() {
 
   const qrMut = useMutation({
     mutationFn: (id) => studentsApi.regenerateQr(id),
-    onSuccess: () => {
+    onSuccess: (response, id) => {
+      const newQr = response?.data?.data;
       toast.success("QR regenerated");
-      invalidate();
+      if (newQr) {
+        patchStudents((items) =>
+          items.map((s) => (s.id === id ? { ...s, qrCode: newQr } : s)),
+        );
+      }
     },
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
-
-  const scholarCount = students.filter((s) =>
-    (s.activeEnrollments || []).some((e) => e.scholarship),
-  ).length;
 
   return (
     <div className="p-6">
       <PageHeader
         title="Students"
-        subtitle={`${students.filter((s) => s.isActive).length} active · ${students.filter((s) => !s.isActive).length} inactive`}
+        subtitle={`${totalCount} matching record${totalCount === 1 ? "" : "s"}`}
         action={
           <Button icon={Plus} onClick={() => setModal("create")}>
             Add Student
@@ -404,41 +490,37 @@ export default function Students() {
         }
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard
-          title="Active"
-          value={students.filter((s) => s.isActive).length}
+          title="Total (filtered)"
+          value={totalCount}
           icon={Users}
           color="bg-green-600"
         />
         <StatCard
-          title="Inactive"
-          value={students.filter((s) => !s.isActive).length}
+          title="Page"
+          value={`${page} / ${totalPages}`}
           icon={UserX}
-          color="bg-red-500"
-        />
-        <StatCard
-          title="Scholarships"
-          value={scholarCount}
-          icon={Award}
-          color="bg-purple-500"
+          color="bg-cyan-500"
         />
         <StatCard
           title="Languages"
-          value={
-            [...new Set(students.flatMap((s) => s.activeLanguages || []))]
-              .length
-          }
+          value={languages.length}
           icon={Languages}
-          color="bg-cyan-500"
+          color="bg-purple-500"
         />
       </div>
+      {/* NOTE: Active/Inactive/Scholarship-wide counts were previously computed
+          client-side from the full unpaginated list. With server-side paging
+          that data no longer exists on the client — if you need true
+          branch-wide totals (not just "matching current filter"), add a
+          lightweight dashboard/summary endpoint instead of scanning all rows. */}
 
       <div className="card">
         <div className="p-4 border-b dark:border-gray-700 flex flex-wrap items-center gap-3">
           <SearchInput
-            value={search}
-            onChange={setSearch}
+            value={searchInput}
+            onChange={setSearchInput}
             placeholder="Search name or phone…"
           />
           <select
@@ -461,28 +543,29 @@ export default function Students() {
           </select>
           <select
             className="input w-40 text-sm"
-            value={filterLang}
+            value={filterLanguageId}
             onChange={(e) => {
-              setFilterLang(e.target.value);
-              setFilterLevel("");
+              setFilterLanguageId(e.target.value);
+              setFilterLevelId("");
             }}
           >
             <option value="">All Languages</option>
             {languages.map((l) => (
-              <option key={l.id} value={l.name}>
+              <option key={l.id} value={l.id}>
                 {l.name}
               </option>
             ))}
           </select>
           <select
             className="input w-36 text-sm"
-            value={filterLevel}
-            onChange={(e) => setFilterLevel(e.target.value)}
+            value={filterLevelId}
+            onChange={(e) => setFilterLevelId(e.target.value)}
+            disabled={!filterLanguageId}
           >
             <option value="">All Levels</option>
-            {allLevelOptions.map((lv) => (
-              <option key={lv} value={lv}>
-                {lv}
+            {levelOptions.map((lv) => (
+              <option key={lv.id} value={lv.id}>
+                {lv.name}
               </option>
             ))}
           </select>
@@ -532,13 +615,13 @@ export default function Students() {
             <RotateCcw size={12} /> Reset Filters
           </button>
           <span className="text-xs text-gray-500 ml-auto">
-            {filtered.length} records
+            {totalCount} records{isFetching ? " · updating…" : ""}
           </span>
         </div>
 
         <Table
           loading={isLoading}
-          data={filtered}
+          data={students}
           emptyMsg="No students found."
           columns={[
             {
@@ -659,6 +742,28 @@ export default function Students() {
             },
           ]}
         />
+
+        <div className="flex items-center justify-between p-3 border-t dark:border-gray-700 text-sm">
+          <span className="text-gray-500">
+            Page {page} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
       </div>
 
       <Modal

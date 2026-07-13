@@ -115,12 +115,6 @@ const SYS_NAV = [
     icon: Bell,
     perm: "notificationsRead",
   },
-  {
-    to: "/firebase-sync",
-    label: "Firebase Sync",
-    icon: CloudLightning,
-    perm: "isSuperAdmin",
-  },
 ];
 
 function navClass({ isActive }) {

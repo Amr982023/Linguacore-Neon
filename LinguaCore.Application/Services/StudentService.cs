@@ -1,4 +1,5 @@
 using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.DTOs.Response;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Entities;
@@ -88,6 +89,23 @@ public class StudentService : IStudentService
         // inconsistent re-sync on subsequent edits.
         await _uow.SaveChangesAsync();
         return ApiResponse<StudentResponse>.Ok(MapToResponse(student));
+    }
+
+    public async Task<ApiResponse<PagedResponse<StudentResponse>>> GetByBranchPagedAsync(
+    Guid branchId, StudentFilterRequest filter)
+    {
+        var (entries, total) = await _uow.Students.GetByBranchPagedAsync(
+            branchId,
+            filter.Page, filter.PageSize,
+            filter.Search, filter.AttendanceMode, filter.IsActive,
+            filter.LanguageId, filter.LevelId, filter.GoalId, filter.NestedGoalId);
+
+        var items = entries.Select(MapToResponse).ToList();
+
+        return ApiResponse<PagedResponse<StudentResponse>>.Ok(
+            new PagedResponse<StudentResponse>(
+                items, total, filter.Page, filter.PageSize,
+                (int)Math.Ceiling(total / (double)filter.PageSize)));
     }
 
     // ?? Queries ???????????????????????????????????????????????????????????????

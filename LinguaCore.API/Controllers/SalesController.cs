@@ -1,8 +1,8 @@
 ﻿using LinguaCore.Application.DTOs.Request;
+using LinguaCore.Application.DTOs.Request.Filters;
 using LinguaCore.Application.Interfaces.Services;
 using LinguaCore.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LinguaCore.API.Controllers
@@ -24,10 +24,8 @@ namespace LinguaCore.API.Controllers
 
         [HttpGet]
         [Authorize(Policy = PermissionPolicies.SalesRead)]
-        public async Task<IActionResult> GetSales(
-     [FromQuery] Guid branchId, [FromQuery] DateTime? from, [FromQuery] DateTime? to,
-     [FromQuery] int page = 1, [FromQuery] int pageSize = 8)
-     => Ok(await _salesService.GetSalesAsync(branchId, from, to, page, pageSize));
+        public async Task<IActionResult> GetSales([FromQuery] SaleFilterRequest filter)
+            => Ok(await _salesService.GetSalesAsync(filter));
 
         [HttpGet("stats")]
         [Authorize(Policy = PermissionPolicies.SalesRead)]
