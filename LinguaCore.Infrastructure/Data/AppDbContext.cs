@@ -103,16 +103,16 @@ public class AppDbContext : DbContext
             warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
     }
 
-    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
-    {
-        configurationBuilder
-            .Properties<DateTime>()
-            .HaveConversion<UtcDateTimeConverter>();
+    //protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    //{
+    //    configurationBuilder
+    //        .Properties<DateTime>()
+    //        .HaveConversion<UtcDateTimeConverter>();
 
-        configurationBuilder
-            .Properties<DateTime?>()
-            .HaveConversion<NullableUtcDateTimeConverter>();
-    }
+    //    configurationBuilder
+    //        .Properties<DateTime?>()
+    //        .HaveConversion<NullableUtcDateTimeConverter>();
+    //}
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

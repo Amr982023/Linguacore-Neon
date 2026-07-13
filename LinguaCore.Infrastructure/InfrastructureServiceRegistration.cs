@@ -1,16 +1,17 @@
+using LinguaCore.Application.Interfaces.Services;
+using LinguaCore.Application.Services;
+using LinguaCore.Domain.Interfaces;
+using LinguaCore.Domain.Interfaces.License;
+using LinguaCore.Domain.Options;
+using LinguaCore.Infrastructure.Authorization;
+using LinguaCore.Infrastructure.Data;
+using LinguaCore.Infrastructure.Helpers;
+using LinguaCore.Infrastructure.Services;
+using LinguaCore.Infrastructure.Services.License;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using LinguaCore.Domain.Interfaces;
-using LinguaCore.Infrastructure.Data;
-using LinguaCore.Infrastructure.Services;
-using LinguaCore.Application.Interfaces.Services;
-using LinguaCore.Domain.Options;
-using LinguaCore.Infrastructure.Authorization;
-using Microsoft.AspNetCore.Authorization;
-using LinguaCore.Domain.Interfaces.License;
-using LinguaCore.Infrastructure.Services.License;
-using LinguaCore.Application.Services;
 
 namespace LinguaCore.Infrastructure;
 
@@ -26,8 +27,9 @@ public static class InfrastructureServiceRegistration
         services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
         configuration.GetConnectionString("DefaultConnection"),
+
         sqlOptions => sqlOptions.MigrationsAssembly("LinguaCore.Infrastructure")
-    )
+    ).AddInterceptors(new UtcDateTimeInterceptor())
     .ConfigureWarnings(warnings =>
         warnings.Ignore(
             Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)
