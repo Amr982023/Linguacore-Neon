@@ -68,7 +68,7 @@ public class GroupService : IGroupService
             FeeAmount               = req.FeeAmount,
             SessionsPerMonth        = req.SessionsPerMonth,
             GracePeriodDays         = req.GracePeriodDays,
-            StartDate               = req.StartDate,
+            StartDate               = req.StartDate.ToUniversalTime(),
             MaxCapacity             = req.MaxCapacity,
         };
         await _uow.Groups.AddAsync(group);
@@ -107,7 +107,7 @@ public class GroupService : IGroupService
         group.InstructorCommissionPct = req.InstructorCommissionPct; // ADD
         group.SessionsPerMonth = req.SessionsPerMonth;
         group.GracePeriodDays = req.GracePeriodDays;
-        group.StartDate = req.StartDate;            // ADD
+        group.StartDate = req.StartDate.ToUniversalTime();            // ADD
         group.MaxCapacity = req.MaxCapacity;
 
         _uow.Groups.Update(group);

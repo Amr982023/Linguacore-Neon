@@ -245,7 +245,7 @@ public class SessionService : ISessionService
             InstructorId = req.InstructorId,
             SessionNumber = req.SessionNumber,
             PeriodLabelId = periodLabel.Id,
-            ScheduledDate = req.ScheduledDate,
+            ScheduledDate = req.ScheduledDate.ToUniversalTime(),
             Topic = req.Topic,
             HallId = req.HallId,
             ZoomAccountId = req.ZoomAccountId,
@@ -312,7 +312,7 @@ public class SessionService : ISessionService
         var isCompletingNow = req.Status == "COMPLETED" && session.Status != "COMPLETED";
 
         session.InstructorId = req.InstructorId;
-        session.ScheduledDate = req.ScheduledDate;
+        session.ScheduledDate = req.ScheduledDate.ToUniversalTime();
         session.Topic = req.Topic;
         session.HallId = req.HallId;
         session.ZoomAccountId = req.ZoomAccountId;

@@ -638,11 +638,7 @@ function OverviewPane({ branchId }) {
             value={fmtNum(s.newThisMonth)}
             color="#1d4ed8"
           />
-          <FRow
-            label="Grace period"
-            value={fmtNum(s.inGracePeriod)}
-            color="#b45309"
-          />
+
           <FRow
             label="Scholarships"
             value={fmtNum(s.withScholarship)}
@@ -704,7 +700,6 @@ function StudentsPane({ branchId }) {
     "Active",
     "Inactive",
     "New",
-    "Grace",
     "Scholar",
     "Discount",
     "Waiting",
@@ -713,7 +708,6 @@ function StudentsPane({ branchId }) {
     s?.totalActive || 0,
     s?.totalInactive || 0,
     s?.newThisMonth || 0,
-    s?.inGracePeriod || 0,
     s?.withScholarship || 0,
     s?.withDiscount || 0,
     s?.waitingListCount || 0,
@@ -751,19 +745,13 @@ function StudentsPane({ branchId }) {
           icon={TrendingUp}
         />
         <KPI
-          label="Grace period"
-          value={fmtNum(s?.inGracePeriod)}
-          accent="#b45309"
-          icon={AlertCircle}
-        />
-      </G>
-      <G cols={4}>
-        <KPI
           label="Scholarships"
           value={fmtNum(s?.withScholarship)}
           accent="#7c3aed"
           icon={Award}
         />
+      </G>
+      <G cols={3}>
         <KPI
           label="Discounts"
           value={fmtNum(s?.withDiscount)}

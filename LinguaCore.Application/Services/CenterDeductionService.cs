@@ -24,11 +24,14 @@ public class CenterDeductionService : ICenterDeductionService
         var page = filter.Page < 1 ? 1 : filter.Page;
         var pageSize = filter.PageSize is < 1 or > 100 ? 10 : filter.PageSize; // hard cap, same rationale as Sales
 
+        var from = filter.From?.ToUniversalTime();
+        var to = filter.To?.ToUniversalTime();
+
         var query = _uow.Repository<CenterDeduction>().Query()
             .Include(d => d.CreatedByUser).ThenInclude(u => u.Person)
             .Where(d => d.BranchId == filter.BranchId
-                     && (filter.From == null || d.DeductionDate >= filter.From)
-                     && (filter.To == null || d.DeductionDate <= filter.To));
+                     && (from == null || d.DeductionDate >= from)
+                     && (to == null || d.DeductionDate <= to));
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
@@ -63,7 +66,7 @@ public class CenterDeductionService : ICenterDeductionService
             BranchId = req.BranchId,
             Name = req.Name.Trim(),
             Amount = req.Amount,
-            DeductionDate = req.DeductionDate,
+            DeductionDate = req.DeductionDate.ToUniversalTime(),
             CreatedBy = req.CreatedBy,
             Notes = req.Notes,
         };
@@ -90,7 +93,7 @@ public class CenterDeductionService : ICenterDeductionService
 
         entity.Name = req.Name.Trim();
         entity.Amount = req.Amount;
-        entity.DeductionDate = req.DeductionDate;
+        entity.DeductionDate = req.DeductionDate.ToUniversalTime();
         entity.Notes = req.Notes;
 
         _uow.Repository<CenterDeduction>().Update(entity);

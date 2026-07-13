@@ -96,11 +96,11 @@ public class ExamRepository : GenericRepository<Exam>, IExamRepository
     // ?? NEW: server-side aggregated branch-wide ranking — full list, unpaginated.
     // See interface doc comment for why pagination/ranking live in the service. ??
     public async Task<IEnumerable<RankingAggregateRow>> GetRankingAsync(
-        Guid branchId,
-        Guid? examId = null,
-        Guid? groupId = null,
-        Guid? languageId = null,
-        Guid? levelId = null)
+     Guid branchId,
+     Guid? examId = null,
+     Guid? groupId = null,
+     Guid? languageId = null,
+     Guid? levelId = null)
     {
         var query = _context.ExamResults.Where(r => r.Exam.Group.BranchId == branchId);
 
@@ -120,18 +120,32 @@ public class ExamRepository : GenericRepository<Exam>, IExamRepository
                 query = query.Where(r => r.Exam.Group.LanguageLevel.LevelId == levelId.Value);
         }
 
-        return await query
+        // Step 1: let SQL do the grouping/aggregation into a plain anonymous type
+        var grouped = await query
             .GroupBy(r => new { r.StudentId, r.Student.Person.FirstName, r.Student.Person.LastName })
-            .Select(g => new RankingAggregateRow(
+            .Select(g => new
+            {
                 g.Key.StudentId,
-                g.Key.FirstName + " " + g.Key.LastName,
-                g.Sum(x => x.MarksObtained),
-                g.Average(x => x.MarksObtained),
-                g.Max(x => x.MarksObtained),
-                g.Count(),
-                g.Any(x => x.Passed)))
+                g.Key.FirstName,
+                g.Key.LastName,
+                TotalMarks = g.Sum(x => x.MarksObtained),
+                AverageMark = g.Average(x => x.MarksObtained),
+                BestMark = g.Max(x => x.MarksObtained),
+                ExamCount = g.Count(),
+                AnyPassed = g.Max(x => x.Passed ? 1 : 0)
+            })
             .OrderByDescending(x => x.AverageMark)
             .ThenByDescending(x => x.BestMark)
             .ToListAsync();
+
+        // Step 2: build the record in memory — cheap, no translation involved
+        return grouped.Select(x => new RankingAggregateRow(
+            x.StudentId,
+            x.FirstName + " " + x.LastName,
+            x.TotalMarks,
+            x.AverageMark,
+            x.BestMark,
+            x.ExamCount,
+            x.AnyPassed == 1));
     }
 }

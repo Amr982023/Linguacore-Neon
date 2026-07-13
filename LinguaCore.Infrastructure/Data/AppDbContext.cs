@@ -762,6 +762,43 @@ public class AppDbContext : DbContext
                 entry.Entity.ModifiedAt = DateTime.UtcNow;
         }
 
+        ConvertDateTimesToUtc();
+
         return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void ConvertDateTimesToUtc()
+    {
+        var entries = ChangeTracker.Entries()
+            .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
+
+        foreach (var entry in entries)
+        {
+            foreach (var property in entry.Properties)
+            {
+                if (property.Metadata.ClrType == typeof(DateTime))
+                {
+                    var value = (DateTime)property.CurrentValue!;
+                    property.CurrentValue = NormalizeToUtc(value);
+                }
+                else if (property.Metadata.ClrType == typeof(DateTime?))
+                {
+                    var value = (DateTime?)property.CurrentValue;
+                    if (value.HasValue)
+                        property.CurrentValue = NormalizeToUtc(value.Value);
+                }
+            }
+        }
+    }
+
+    private static DateTime NormalizeToUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+            _ => value
+        };
     }
 }

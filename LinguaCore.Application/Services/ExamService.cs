@@ -21,7 +21,7 @@ public class ExamService : IExamService
             Title = req.Title,
             TotalMarks = req.TotalMarks,
             PassPercentage = req.PassPercentage,
-            ExamDate = req.ExamDate,
+            ExamDate = req.ExamDate.ToUniversalTime(),
             DurationMins = req.DurationMins,
             IsCustom = !req.IsFinalExam,
         };
@@ -49,7 +49,7 @@ public class ExamService : IExamService
         exam.Title = req.Title;
         exam.TotalMarks = req.TotalMarks;
         exam.PassPercentage = req.PassPercentage;
-        exam.ExamDate = req.ExamDate;
+        exam.ExamDate = req.ExamDate.ToUniversalTime();
         exam.DurationMins = req.DurationMins;
         exam.IsCustom = !req.IsFinalExam;
 

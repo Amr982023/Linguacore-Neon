@@ -581,16 +581,6 @@ function CommissionTab({ instructorId }) {
             className="bg-transparent text-sm text-gray-700 dark:text-white/70 outline-none"
           />
         </div>
-
-        <div className="ml-auto flex items-center gap-2 bg-gradient-to-r from-[#00d4ff]/10 to-[#0055cc]/10 border border-[#0055cc]/20 rounded-xl px-4 py-2">
-          <TrendingUp
-            size={14}
-            className="text-[#0055cc] dark:text-[#00d4ff]"
-          />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#0055cc] dark:text-[#00d4ff]">
-            Total (this page): {fmt(pageTotal)}
-          </span>
-        </div>
       </div>
 
       <div className={`transition-opacity ${isFetching ? "opacity-60" : ""}`}>
