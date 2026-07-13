@@ -23,6 +23,11 @@ public class ExamsController : ControllerBase
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
+    [HttpGet("{examId}/ranking")]
+    [Authorize(Policy = PermissionPolicies.ExamsRead)]
+    public async Task<IActionResult> GetRankingByExam(Guid examId)
+    => Ok(await _service.GetRankingByExamAsync(examId));
+
     [HttpGet("group/{groupId}")]
     [Authorize(Policy = PermissionPolicies.ExamsRead)]
     public async Task<IActionResult> GetByGroup(Guid groupId)

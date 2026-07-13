@@ -17,9 +17,25 @@ public class DashboardService : IDashboardService
         _paymentService = paymentService;
     }
 
+    // FIX: Npgsql requires DateTimeKind.Utc for any value bound to a
+    // "timestamp with time zone" column/parameter. Every DateTime built with
+    // `new DateTime(...)` (or arriving from model binding / another layer)
+    // defaults to Kind=Unspecified, which throws:
+    //   "Cannot write DateTime with Kind=Unspecified to PostgreSQL type
+    //    'timestamp with time zone', only UTC is supported."
+    // This helper normalizes any such value right before it's used in a query.
+    private static DateTime AsUtc(DateTime d) =>
+        d.Kind == DateTimeKind.Utc ? d : DateTime.SpecifyKind(d, DateTimeKind.Utc);
+
     public async Task<ApiResponse<FinancialSummaryResponse>> GetFinancialSummaryAsync(
         Guid? branchId, DateTime from, DateTime to)
     {
+        // FIX: `from`/`to` arrive as method parameters (ultimately from the
+        // controller/model binder), which can carry Kind=Unspecified. Normalize
+        // once at the top so every downstream query in this method is safe.
+        from = AsUtc(from);
+        to = AsUtc(to);
+
         var payments = await _uow.Payments.GetByPeriodAsync(from, to);
         if (branchId.HasValue)
             payments = payments.Where(p => p.Enrollment.Group.BranchId == branchId.Value);
@@ -66,8 +82,10 @@ public class DashboardService : IDashboardService
             totalRefunds, 0, overdueCount, byMethod));
     }
 
-    public async Task<ApiResponse<StudentSummaryResponse>> GetStudentSummaryAsync(Guid? branchId)
+    public async Task<ApiResponse<StudentSummaryResponse>> GetStudentSummaryAsync(Guid? branchId, string? period)
     {
+        var (from, to, _) = ResolvePeriod(period);
+
         var all = branchId.HasValue
             ? await _uow.Students.GetByBranchAsync(branchId.Value)
             : await _uow.Students.GetAllAsync();
@@ -79,11 +97,8 @@ public class DashboardService : IDashboardService
             s.CreatedAt.Month == DateTime.UtcNow.Month &&
             s.CreatedAt.Year == DateTime.UtcNow.Year);
 
-        var scholarship = all.Count(s =>
-            s.Enrollments.Any(e => e.Scholarship));
-
-        var discount = all.Count(s =>
-            s.Enrollments.Any(e => e.DiscountPct > 0));
+        var scholarship = all.Count(s => s.Enrollments.Any(e => e.Scholarship));
+        var discount = all.Count(s => s.Enrollments.Any(e => e.DiscountPct > 0));
 
         var gracePeriod = await _uow.Enrollments.GetOverdueAsync();
 
@@ -92,10 +107,25 @@ public class DashboardService : IDashboardService
             : await _uow.WaitingLists.GetAllAsync();
         var waitingCount = wl.Count(w => w.Status == "WAITING");
 
+        // Early exit rate: enrollments that exited/were refunded within the
+        // selected period, divided by all enrollments that existed by period end.
+        var enrollments = (await _uow.Repository<Enrollment>().FindAsync(e =>
+                !branchId.HasValue || e.Group.BranchId == branchId.Value))
+            .ToList();
+
+        var totalEnrollments = enrollments.Count(e => e.CreatedAt <= to);
+        var exitedInPeriod = enrollments.Count(e =>
+            (e.EnrollStatus.Name == "EXITED_REFUNDED") &&
+            e.ModifiedAt >= from && e.ModifiedAt <= to);
+
+        var earlyExitRate = totalEnrollments > 0
+            ? (double)exitedInPeriod / totalEnrollments
+            : 0;
+
         return ApiResponse<StudentSummaryResponse>.Ok(new StudentSummaryResponse(
             totalActive, totalInactive, newThisMonth,
             gracePeriod.Count(), scholarship, discount,
-            waitingCount, 0));
+            waitingCount, earlyExitRate));
     }
 
     public async Task<ApiResponse<GroupSummaryResponse>> GetGroupSummaryAsync(Guid? branchId)
@@ -115,11 +145,15 @@ public class DashboardService : IDashboardService
     private static (DateTime From, DateTime To, string Label) ResolvePeriod(string? period)
     {
         var now = DateTime.UtcNow;
+
+        // FIX (spot 1/4): `new DateTime(now.Year, now.Month, 1)` builds a
+        // Kind=Unspecified DateTime even though `now` itself is Utc. Wrap it
+        // with AsUtc so the "This month" branch is safe to bind to Postgres.
         return (period ?? "month").ToLowerInvariant() switch
         {
             "3months" => (now.AddMonths(-3), now, "Last 3 months"),
             "year" => (now.AddYears(-1), now, "Last year"),
-            _ => (new DateTime(now.Year, now.Month, 1), now, "This month"),
+            _ => (AsUtc(new DateTime(now.Year, now.Month, 1)), now, "This month"),
         };
     }
 
@@ -236,7 +270,9 @@ public class DashboardService : IDashboardService
             .OrderByDescending(x => x.Amount)
             .ToList();
 
-        var yearStart = new DateTime(DateTime.UtcNow.Year, 1, 1);
+        // FIX (spot 2/4): `new DateTime(DateTime.UtcNow.Year, 1, 1)` is
+        // Kind=Unspecified. Wrap with AsUtc before it's used as a query bound.
+        var yearStart = AsUtc(new DateTime(DateTime.UtcNow.Year, 1, 1));
         var ytdPayments = (await _uow.Payments.GetByPeriodAsync(yearStart, DateTime.UtcNow)).ToList();
         if (branchId.HasValue)
             ytdPayments = ytdPayments.Where(p => p.Enrollment.Group.BranchId == branchId.Value).ToList();
@@ -252,8 +288,14 @@ public class DashboardService : IDashboardService
         var byYear = new List<YearAmount>();
         for (var y = DateTime.UtcNow.Year - 2; y <= DateTime.UtcNow.Year; y++)
         {
-            var yFrom = new DateTime(y, 1, 1);
-            var yTo = y == DateTime.UtcNow.Year ? DateTime.UtcNow : new DateTime(y, 12, 31, 23, 59, 59);
+            // FIX (spot 3/4): both `yFrom` and the `new DateTime(y, 12, 31, ...)`
+            // branch of `yTo` are Kind=Unspecified. Wrap both with AsUtc.
+            // (When yTo falls back to DateTime.UtcNow it's already Utc, but
+            // AsUtc is a no-op in that case, so it's safe to wrap unconditionally.)
+            var yFrom = AsUtc(new DateTime(y, 1, 1));
+            var yTo = AsUtc(y == DateTime.UtcNow.Year
+                ? DateTime.UtcNow
+                : new DateTime(y, 12, 31, 23, 59, 59));
             var yearPayments = (await _uow.Payments.GetByPeriodAsync(yFrom, yTo)).ToList();
             if (branchId.HasValue)
                 yearPayments = yearPayments.Where(p => p.Enrollment.Group.BranchId == branchId.Value).ToList();
@@ -264,8 +306,11 @@ public class DashboardService : IDashboardService
         var monthlyTrend = new List<MonthlyTrendPoint>();
         for (var i = 5; i >= 0; i--)
         {
-            var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-i);
-            var monthEnd = monthStart.AddMonths(1).AddTicks(-1);
+            // FIX (spot 4/4): `monthStart` (built from `new DateTime(...)`) and
+            // `monthEnd` (derived from it) both inherit Kind=Unspecified. Wrap
+            // both with AsUtc before they're used in any query.
+            var monthStart = AsUtc(new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-i));
+            var monthEnd = AsUtc(monthStart.AddMonths(1).AddTicks(-1));
 
             var monthPayments = (await _uow.Payments.GetByPeriodAsync(monthStart, monthEnd)).ToList();
             if (branchId.HasValue)

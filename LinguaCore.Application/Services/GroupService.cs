@@ -53,23 +53,23 @@ public class GroupService : IGroupService
             return ApiResponse<GroupResponse>.Fail(langValidation.Message);
         var group = new Group
         {
-            BranchId                = req.BranchId,
-            LanguageLevelId         = req.LanguageLevelId,
-            InstructorId            = req.InstructorId,
-            HallId                  = req.HallId,
-            ZoomAccountId           = req.ZoomAccountId,
-            GroupCategoryId         = req.GroupCategoryId,
-            GroupTypeId             = req.GroupTypeId,
-            DeliveryModeId          = req.DeliveryModeId,
-            GroupStatusId           = req.GroupStatusId,
-            Name                    = req.Name,
+            BranchId = req.BranchId,
+            LanguageLevelId = req.LanguageLevelId,
+            InstructorId = req.InstructorId,
+            HallId = req.HallId,
+            ZoomAccountId = req.ZoomAccountId,
+            GroupCategoryId = req.GroupCategoryId,
+            GroupTypeId = req.GroupTypeId,
+            DeliveryModeId = req.DeliveryModeId,
+            GroupStatusId = req.GroupStatusId,
+            Name = req.Name,
             InstructorCommissionPct = req.InstructorCommissionPct,
-            PaymentStrategy         = req.PaymentStrategy,
-            FeeAmount               = req.FeeAmount,
-            SessionsPerMonth        = req.SessionsPerMonth,
-            GracePeriodDays         = req.GracePeriodDays,
-            StartDate               = req.StartDate.ToUniversalTime(),
-            MaxCapacity             = req.MaxCapacity,
+            PaymentStrategy = req.PaymentStrategy,
+            FeeAmount = req.FeeAmount,
+            SessionsPerMonth = req.SessionsPerMonth,
+            GracePeriodDays = req.GracePeriodDays,
+            StartDate = req.StartDate.ToUniversalTime(),
+            MaxCapacity = req.MaxCapacity,
         };
         await _uow.Groups.AddAsync(group);
         await _uow.SaveChangesAsync(); // ? ensure Id is generated
@@ -77,9 +77,9 @@ public class GroupService : IGroupService
         // Record initial instructor history
         var history = new GroupInstructorHistory
         {
-            GroupId       = group.Id,
-            InstructorId  = req.InstructorId,
-            FromDate      = req.StartDate,
+            GroupId = group.Id,
+            InstructorId = req.InstructorId,
+            FromDate = req.StartDate,
             CommissionPct = req.InstructorCommissionPct,
         };
         await _uow.Repository<GroupInstructorHistory>().AddAsync(history);
@@ -150,15 +150,15 @@ public class GroupService : IGroupService
         // Open new history record
         var newHistory = new GroupInstructorHistory
         {
-            GroupId       = req.GroupId,
-            InstructorId  = req.NewInstructorId,
-            FromDate      = req.EffectiveFrom,
+            GroupId = req.GroupId,
+            InstructorId = req.NewInstructorId,
+            FromDate = req.EffectiveFrom,
             CommissionPct = req.NewCommissionPct,
         };
         await _uow.Repository<GroupInstructorHistory>().AddAsync(newHistory);
 
         // Update current instructor on group
-        group.InstructorId            = req.NewInstructorId;
+        group.InstructorId = req.NewInstructorId;
         group.InstructorCommissionPct = req.NewCommissionPct;
         _uow.Groups.Update(group);
 
@@ -219,22 +219,23 @@ public class GroupService : IGroupService
     }
 
     private static GroupResponse MapToResponse(Group g) => new(
-         g.Id, g.BranchId, g.Branch?.Name ?? "",
-         g.LanguageLevelId,
-         g.LanguageLevel?.LanguageId ?? Guid.Empty,      // ADD THIS
-         g.LanguageLevel?.Language?.Name ?? "",
-         g.LanguageLevel?.Level?.Code ?? "",
-         g.InstructorId,
-         g.Instructor?.Person is null ? "" : $"{g.Instructor.Person.FirstName} {g.Instructor.Person.LastName}",
-         g.HallId, g.Hall?.Name,
-         g.ZoomAccountId, g.ZoomAccount?.DisplayName,
-         g.GroupCategoryId,
-         g.GroupTypeId,
-         g.DeliveryModeId,
-         g.GroupStatusId,
-         g.Name, g.GroupCategory?.Name ?? "", g.GroupType?.Name ?? "",
-         g.DeliveryMode?.Name ?? "", g.GroupStatus?.Name ?? "",
-         g.InstructorCommissionPct, g.PaymentStrategy, g.FeeAmount,
-         g.SessionsPerMonth, g.GracePeriodDays, g.StartDate, g.MaxCapacity,
-         g.Enrollments?.Count ?? 0, g.CreatedAt, g.ModifiedAt);
+      g.Id, g.BranchId, g.Branch?.Name ?? "",
+      g.LanguageLevelId,
+      g.LanguageLevel?.LanguageId ?? Guid.Empty,
+      g.LanguageLevel?.Language?.Name ?? "",
+      g.LanguageLevel?.LevelId ?? Guid.Empty,   // ? NEW
+      g.LanguageLevel?.Level?.Code ?? "",
+      g.InstructorId,
+      g.Instructor?.Person is null ? "" : $"{g.Instructor.Person.FirstName} {g.Instructor.Person.LastName}",
+      g.HallId, g.Hall?.Name,
+      g.ZoomAccountId, g.ZoomAccount?.DisplayName,
+      g.GroupCategoryId,
+      g.GroupTypeId,
+      g.DeliveryModeId,
+      g.GroupStatusId,
+      g.Name, g.GroupCategory?.Name ?? "", g.GroupType?.Name ?? "",
+      g.DeliveryMode?.Name ?? "", g.GroupStatus?.Name ?? "",
+      g.InstructorCommissionPct, g.PaymentStrategy, g.FeeAmount,
+      g.SessionsPerMonth, g.GracePeriodDays, g.StartDate, g.MaxCapacity,
+      g.Enrollments?.Count ?? 0, g.CreatedAt, g.ModifiedAt);
 }

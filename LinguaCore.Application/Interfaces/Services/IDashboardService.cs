@@ -17,7 +17,8 @@ public interface IDashboardService
 
     Task<ApiResponse<WaitingSummaryRichResponse>> GetWaitingSummaryRichAsync(Guid? branchId);
     Task<ApiResponse<FinancialSummaryResponse>> GetFinancialSummaryAsync(Guid? branchId, DateTime from, DateTime to);
-    Task<ApiResponse<StudentSummaryResponse>> GetStudentSummaryAsync(Guid? branchId);
+    Task<ApiResponse<StudentSummaryResponse>> GetStudentSummaryAsync(Guid? branchId, string? period);
+
     Task<ApiResponse<GroupSummaryResponse>> GetGroupSummaryAsync(Guid? branchId);
     Task<ApiResponse<CashDrawerResponse>> GetCashDrawerAsync(Guid? branchId);
 }

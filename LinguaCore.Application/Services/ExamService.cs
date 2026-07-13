@@ -294,6 +294,25 @@ public class ExamService : IExamService
         return ApiResponse<PagedResponse<RankingAggregateResponse>>.Ok(response);
     }
 
+
+    // Ranking scoped to a single exam (handles retakes: ranks by each student's
+    // best attempt on THIS exam, not their total across every exam the group has taken).
+    public async Task<ApiResponse<IEnumerable<RankingResponse>>> GetRankingByExamAsync(Guid examId)
+    {
+        var results = await _uow.Exams.GetRankingByExamAsync(examId);
+        var grouped = results
+            .GroupBy(r => r.StudentId)
+            .Select(g => new RankingResponse(
+                0, g.Key,
+                g.First().Student?.Person is null ? "" :
+                    $"{g.First().Student.Person.FirstName} {g.First().Student.Person.LastName}",
+                g.Max(r => r.MarksObtained),   // best attempt on this exam
+                g.Average(r => r.MarksObtained), // avg across retakes of this exam
+                g.Count()))                     // attempts on this exam
+            .OrderByDescending(r => r.TotalMarks)
+            .Select((r, idx) => r with { Rank = idx + 1 });
+        return ApiResponse<IEnumerable<RankingResponse>>.Ok(grouped);
+    }
     private static ExamResultResponse MapResult(ExamResult r) => new(
         r.Id, r.ExamId, r.Exam?.Title ?? "",
         r.StudentId,

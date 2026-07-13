@@ -20,8 +20,8 @@ public class DashboardController : ControllerBase
 
     [HttpGet("students")]
     [Authorize(Policy = PermissionPolicies.DashboardRead)]
-    public async Task<IActionResult> GetStudents(Guid? branchId)
-        => Ok(await _service.GetStudentSummaryAsync(branchId));
+    public async Task<IActionResult> GetStudents(Guid? branchId, string? period)
+    => Ok(await _service.GetStudentSummaryAsync(branchId, period));
 
     [HttpGet("groups")]
     [Authorize(Policy = PermissionPolicies.DashboardRead)]

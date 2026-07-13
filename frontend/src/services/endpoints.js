@@ -93,6 +93,7 @@ export const examsApi = {
     api.get(`/exams/student/${studentId}/results`),
   getRanking: (groupId) => api.get(`/exams/group/${groupId}/ranking`), // unchanged, used by ExamDetail
   create: (data) => api.post("/exams", data),
+  getRankingByExam: (examId) => api.get(`/exams/${examId}/ranking`),
   addResult: (data) => api.post("/exams/result", data),
   issueCertificate: (examResultId) =>
     api.post(`/exams/${examResultId}/certificate`),

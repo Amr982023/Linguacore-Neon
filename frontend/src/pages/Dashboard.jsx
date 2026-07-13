@@ -10,7 +10,7 @@ import {
   getExamSummaryRich,
   getWaitingSummaryRich,
   getCashDrawer,
-} from "../services/dashboardService";
+} from "../services/Dashboardservice";
 import {
   PieChart,
   Pie,
@@ -76,10 +76,10 @@ const pct = (v, tot) => (tot ? Math.round((v / tot) * 100) : 0);
 // ══════════════════════════════════════════════════════════════
 // PERIOD SELECTOR + BADGE
 // ══════════════════════════════════════════════════════════════
-// Only Payments, Instructors, and Exams support a real backend period
-// filter today. Other panes (Overview, Students, Groups, Waiting) are
-// always a current-state snapshot — they get a static label instead so
-// nobody assumes a selector change affects them too.
+// Payments, Instructors, and Exams support a real backend period filter
+// today (DashboardService.ResolvePeriod). Other panes (Overview, Students,
+// Groups, Waiting) are always a current-state snapshot — they get a static
+// label instead so nobody assumes a selector change affects them too.
 const PERIOD_OPTIONS = [
   { key: "month", label: "Last month" },
   { key: "3months", label: "Last 3 months" },
@@ -689,10 +689,10 @@ function OverviewPane({ branchId }) {
 // ══════════════════════════════════════════════════════════════
 // STUDENTS
 // ══════════════════════════════════════════════════════════════
-function StudentsPane({ branchId }) {
+function StudentsPane({ branchId, period, onPeriodChange }) {
   const { data: s, isLoading } = useQuery({
-    queryKey: ["dash-students", branchId],
-    queryFn: () => getStudentSummary(branchId),
+    queryKey: ["dash-students", branchId, period],
+    queryFn: () => getStudentSummary(branchId, period),
     enabled: !!branchId,
   });
   if (isLoading) return <Loading />;
@@ -723,7 +723,10 @@ function StudentsPane({ branchId }) {
   ];
   return (
     <>
-      <PeriodBadge label="All time (snapshot) · new students: this month" />
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <PeriodBadge label="All time (snapshot) · early exit rate: selected period" />
+        <PeriodSelector value={period} onChange={onPeriodChange} />
+      </div>
       <SecTitle>Student statistics</SecTitle>
       <G cols={4}>
         <KPI
@@ -1285,107 +1288,110 @@ function PaymentsPane({ branchId, period, onPeriodChange }) {
 // ══════════════════════════════════════════════════════════════
 // INSTRUCTORS
 // ══════════════════════════════════════════════════════════════
+// Backed by DashboardService.GetInstructorSummaryRichAsync, which resolves
+// the same "month" | "3months" | "year" period as Payments/Exams. Returns:
+//   instructorMonthly: [{ name, sessions, commission }]  — sorted by sessions desc
+//   instructorClosing: [{ name, sessions }]               — sessions swept into a closing
 function InstructorsPane({ branchId, period, onPeriodChange }) {
-  const { data: f, isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["dash-instructors-rich", branchId, period],
     queryFn: () => getInstructorSummaryRich(branchId, period),
     enabled: !!branchId,
   });
   if (isLoading) return <Loading />;
 
-  // monthly: sorted descending by sessions (highest first = rank 1)
-  const monthly = [...(f?.instructorMonthly || [])].sort(
-    (a, b) => b.sessions - a.sessions,
-  );
-  // closing: sorted descending by closingSessions
-  const closing = [...(f?.instructorClosing || [])].sort(
-    (a, b) => b.sessions - a.sessions,
-  );
+  const monthly = data?.instructorMonthly || [];
+  const closing = data?.instructorClosing || [];
 
-  const buildRank = (arr, field = "sessions", label = "sess") => {
-    const tot = arr.reduce((a, x) => a + (x[field] || 0), 0);
-    return arr.map((x) => ({
-      name: x.name,
-      value: x[field] || 0,
-      label,
-      pct: pct(x[field] || 0, tot),
-    }));
-  };
+  // instructorMonthly already arrives sorted by sessions desc from the
+  // backend — re-sort a local copy for the commission ranking.
+  const bySessions = monthly;
+  const byCommission = [...monthly].sort((a, b) => b.commission - a.commission);
+  const closingRank = [...closing].sort((a, b) => b.sessions - a.sessions);
+
+  const totSessions = bySessions.reduce((a, x) => a + x.sessions, 0);
+  const totCommission = byCommission.reduce((a, x) => a + x.commission, 0);
+  const totClosingSessions = closingRank.reduce((a, x) => a + x.sessions, 0);
 
   return (
     <>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
-        <PeriodBadge label={f?.periodLabel || "This month"} />
+        <PeriodBadge label={data?.periodLabel || "This month"} />
         <PeriodSelector value={period} onChange={onPeriodChange} />
       </div>
-      <SecTitle>Instructor & commission statistics</SecTitle>
+      <SecTitle>Instructor statistics</SecTitle>
       <G cols={3}>
         <KPI
           label="Total commissions"
-          value={fmtEGP(f?.totalCommissions, true)}
+          value={fmtEGP(data?.totalCommissions, true)}
           accent="#b45309"
+          icon={Percent}
+        />
+        <KPI
+          label="Net revenue"
+          value={fmtEGP(data?.netRevenue, true)}
+          accent="#15803d"
           icon={DollarSign}
         />
         <KPI
-          label="Net centre revenue"
-          value={fmtEGP(f?.netRevenue, true)}
-          accent="#15803d"
-          icon={TrendingUp}
-        />
-        <KPI
           label="Pending closings"
-          value={fmtNum(f?.pendingClosings)}
-          accent="#185FA5"
-          icon={ClipboardList}
+          value={fmtNum(data?.pendingClosings)}
+          accent="#dc2626"
+          icon={AlertCircle}
         />
       </G>
-      {monthly.length > 0 ? (
+
+      {bySessions.length === 0 ? (
+        <Hint>No sessions or commission activity yet for this period.</Hint>
+      ) : (
         <>
-          {/* Sessions per instructor — selected period */}
           <G cols={2}>
-            <Card title="Sessions per instructor" icon={BarChart3}>
-              <Lgd
-                labels={monthly.map((x) => x.name)}
-                colors={P}
-                values={monthly.map((x) => x.sessions)}
-              />
-              <Donut
-                labels={monthly.map((x) => x.name)}
-                values={monthly.map((x) => x.sessions)}
-                colors={P}
+            <Card title="Ranking — sessions taught" icon={UserCheck}>
+              <RankList
+                items={bySessions.map((x) => ({
+                  name: x.name,
+                  value: x.sessions,
+                  label: "sessions",
+                  pct: pct(x.sessions, totSessions),
+                }))}
               />
             </Card>
-            <Card title="Ranking — sessions" icon={ClipboardList}>
-              <RankList items={buildRank(monthly, "sessions", "sess")} />
+            <Card title="Ranking — commission earned" icon={DollarSign}>
+              <RankList
+                items={byCommission.map((x) => ({
+                  name: x.name,
+                  value: Number(x.commission).toLocaleString(),
+                  label: "EGP",
+                  pct: pct(x.commission, totCommission),
+                }))}
+              />
             </Card>
           </G>
 
-          {/* Commission amounts */}
-          <Card title="Commission amounts per instructor" icon={DollarSign}>
-            {(() => {
-              const maxC = Math.max(
-                ...monthly.map((x) => x.commission || 0),
-                1,
-              );
-              return monthly.map((inst, i) => (
-                <MBar
-                  key={inst.name}
-                  label={inst.name}
-                  value={inst.commission || 0}
-                  max={maxC}
-                  color={P[i % P.length]}
-                />
-              ));
-            })()}
+          <Card title="Sessions taught — comparison" icon={BarChart3}>
+            <VBar
+              labels={bySessions.map((x) => x.name)}
+              values={bySessions.map((x) => x.sessions)}
+              colors={P}
+              height={Math.max(200, bySessions.length * 12)}
+            />
           </Card>
+
+          {closingRank.length > 0 && (
+            <Card
+              title="Sessions fully distributed (closed)"
+              icon={CheckCircle}
+            >
+              <HBar
+                labels={closingRank.map((x) => x.name)}
+                values={closingRank.map((x) =>
+                  Math.round((x.sessions / (totClosingSessions || 1)) * 100),
+                )}
+                colors={closingRank.map(() => "#378ADD")}
+              />
+            </Card>
+          )}
         </>
-      ) : (
-        <Card>
-          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-5">
-            Commission data will appear once payments are recorded in this
-            period.
-          </p>
-        </Card>
       )}
     </>
   );
@@ -1703,7 +1709,13 @@ export default function Dashboard() {
         </div>
         <div className="p-5">
           {tab === "overview" && <OverviewPane branchId={branchId} />}
-          {tab === "students" && <StudentsPane branchId={branchId} />}
+          {tab === "students" && (
+            <StudentsPane
+              branchId={branchId}
+              period={period}
+              onPeriodChange={setPeriod}
+            />
+          )}
           {tab === "groups" && <GroupsPane branchId={branchId} />}
           {tab === "payments" && (
             <PaymentsPane

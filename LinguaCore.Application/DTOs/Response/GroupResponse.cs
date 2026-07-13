@@ -4,7 +4,8 @@ public record GroupResponse(
     Guid Id, Guid BranchId, string BranchName,
     Guid LanguageLevelId,                          // ADD
     Guid LanguageId,
-    string LanguageName, string LevelCode,
+    string LanguageName,
+    Guid LevelId, string LevelCode,
     Guid InstructorId, string InstructorName,
     Guid? HallId, string? HallName,                // ADD HallId
     Guid? ZoomAccountId, string? ZoomAccountName,  // ADD ZoomAccountId

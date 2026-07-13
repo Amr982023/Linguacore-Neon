@@ -36,13 +36,13 @@ public class PaymentRepository : GenericRepository<Payment>, IPaymentRepository
             .Include(p => p.Enrollment).ThenInclude(e => e.Group).ThenInclude(g => g.LanguageLevel).ThenInclude(ll => ll.Level)
             .Include(p => p.PaymentMethod)
             .Include(p => p.PeriodLabel)
-            .Where(p => p.PaymentDate >= from && p.PaymentDate <= to)
+            .Where(p => p.PaymentDate >= from.ToUniversalTime() && p.PaymentDate <= to.ToUniversalTime())
             .ToListAsync();
 
     public async Task<decimal> GetTotalCollectedAsync(Guid branchId, DateTime from, DateTime to)
         => await _dbSet
             .Where(p => p.Enrollment.Group.BranchId == branchId
-                     && p.PaymentDate >= from && p.PaymentDate <= to)
+                     && p.PaymentDate >= from.ToUniversalTime() && p.PaymentDate <= to.ToUniversalTime())
             .SumAsync(p => p.AmountPaid);
 
     // ?? New: offset-paginated, fully server-side filtered query ????????????
@@ -66,8 +66,8 @@ public class PaymentRepository : GenericRepository<Payment>, IPaymentRepository
     {
         var query = _dbSet.AsNoTracking().Where(p =>
             p.Enrollment.Group.BranchId == branchId &&
-            p.PaymentDate >= from &&
-            p.PaymentDate <= to);
+            p.PaymentDate >= from.ToUniversalTime() &&
+            p.PaymentDate <= to.ToUniversalTime());
 
         query = ApplyFilters(query, search, languageId, levelId, paymentMethodId, groupId, status);
 

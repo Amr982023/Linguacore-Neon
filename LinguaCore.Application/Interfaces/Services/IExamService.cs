@@ -8,6 +8,7 @@ public interface IExamService
     Task<ApiResponse<ExamResponse>> CreateAsync(CreateExamRequest req, Guid userId);
     Task<ApiResponse<ExamResponse>> UpdateAsync(UpdateExamRequest req);
     Task<ApiResponse<IEnumerable<ExamResponse>>> GetByGroupAsync(Guid groupId);
+    Task<ApiResponse<IEnumerable<RankingResponse>>> GetRankingByExamAsync(Guid examId);
     Task<ApiResponse<ExamResultResponse>> AddResultAsync(AddExamResultRequest req, Guid userId);
     Task<ApiResponse<IEnumerable<ExamResultResponse>>> GetResultsByExamAsync(Guid examId);
     Task<ApiResponse<IEnumerable<ExamResultResponse>>> GetResultsByStudentAsync(Guid studentId);

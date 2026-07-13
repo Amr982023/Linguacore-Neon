@@ -111,6 +111,14 @@ export default function Certificates() {
     setPage(1);
   }, [search, langFilter, levelFilter, groupFilter]);
 
+  // Level is dependent on language — whenever the language changes, clear
+  // whatever level was selected. Without this, switching language while a
+  // level from the *previous* language is still selected produces an
+  // invalid combo that silently returns zero rows.
+  useEffect(() => {
+    setLevelFilter("");
+  }, [langFilter]);
+
   const commitSearch = () => setSearch(searchInput.trim());
 
   const filter = {
@@ -149,19 +157,28 @@ export default function Certificates() {
     ...NO_AUTO_REFETCH,
   });
 
-  // Language/level options come from lookups, not from the loaded page of
-  // certificates — with server-side pagination the visible page is only a
-  // slice, so deriving filter options from it would hide options that exist
-  // on other pages.
+  // Language options are always the full lookup list.
   const { data: languagesRes } = useQuery({
     queryKey: ["languages"],
     queryFn: () => lookupsApi.getLanguages(),
     ...NO_AUTO_REFETCH,
   });
 
+  // Levels now depend on the selected language: with no language chosen we
+  // fall back to the full level lookup, but once a language is picked we
+  // only show levels that actually exist for that language (via the
+  // LanguageLevel junction), same pattern as the Groups page FK resolution.
+  // NOTE: assumes getLanguageLevels(languageId) returns items shaped like
+  // { id, code } — the same shape as getLevels(). If it instead returns raw
+  // LanguageLevel junction rows with a different id than Level.id, the
+  // `value={l.id}` below needs to point at the underlying level id instead
+  // (e.g. l.levelId) so it still matches what the backend filter expects.
   const { data: levelsRes } = useQuery({
-    queryKey: ["levels"],
-    queryFn: () => lookupsApi.getLevels(),
+    queryKey: ["levels", langFilter],
+    queryFn: () =>
+      langFilter
+        ? lookupsApi.getLanguageLevels(langFilter)
+        : lookupsApi.getLevels(),
     ...NO_AUTO_REFETCH,
   });
 
@@ -245,8 +262,12 @@ export default function Certificates() {
             className="input w-32"
             value={levelFilter}
             onChange={(e) => setLevelFilter(e.target.value)}
+            disabled={!langFilter}
+            title={!langFilter ? "Select a language first" : undefined}
           >
-            <option value="">All Levels</option>
+            <option value="">
+              {langFilter ? "All Levels" : "Select language first"}
+            </option>
             {levels.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.code}

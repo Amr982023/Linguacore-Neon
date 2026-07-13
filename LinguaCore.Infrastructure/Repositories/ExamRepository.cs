@@ -40,6 +40,13 @@ public class ExamRepository : GenericRepository<Exam>, IExamRepository
             .OrderByDescending(r => r.MarksObtained)
             .ToListAsync();
 
+    public async Task<IEnumerable<ExamResult>> GetRankingByExamAsync(Guid examId)
+    => await _context.ExamResults
+        .Include(r => r.Student).ThenInclude(s => s.Person)
+        .Where(r => r.ExamId == examId)
+        .OrderByDescending(r => r.MarksObtained)
+        .ToListAsync();
+
     // ?? NEW: paginated + filtered branch-wide exam list ????????????????????????
     public async Task<(IEnumerable<Exam> Items, int TotalCount)> GetByBranchAsync(
         Guid branchId,

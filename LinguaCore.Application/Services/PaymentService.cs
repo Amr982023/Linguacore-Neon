@@ -15,6 +15,17 @@ public class PaymentService : IPaymentService
     private readonly IHttpContextAccessor _httpContext;
     public PaymentService(IUnitOfWork uow, IHttpContextAccessor httpContext)
     { _uow = uow; _httpContext = httpContext; }
+
+    // FIX: same Npgsql constraint as in DashboardService — any DateTime bound
+    // to a "timestamp with time zone" column must be Kind=Utc. `from`/`to`
+    // values arriving here come from request DTOs (model binding / JSON
+    // deserialization), which produce Kind=Unspecified unless the client sent
+    // an explicit "Z"/offset. Normalize before they touch a query.
+    private static DateTime AsUtc(DateTime d) =>
+        d.Kind == DateTimeKind.Utc ? d : DateTime.SpecifyKind(d, DateTimeKind.Utc);
+
+    private static DateTime? AsUtc(DateTime? d) => d.HasValue ? AsUtc(d.Value) : null;
+
     // ── Create ────────────────────────────────────────────────────────────────
 
     // LinguaCore.Application.Services/PaymentService.cs — CreateAsync replacement
@@ -90,6 +101,9 @@ public class PaymentService : IPaymentService
         var commissionPct = group.InstructorCommissionPct;
 
         // ── 4. Create Payment ─────────────────────────────────────────────────
+        // FIX: req.DueDate comes straight from the request DTO and can be
+        // Kind=Unspecified. It's stored on a "timestamp with time zone" column,
+        // so normalize it before assigning to the entity.
         var payment = new Payment
         {
             EnrollmentId = req.EnrollmentId,
@@ -99,7 +113,7 @@ public class PaymentService : IPaymentService
             AmountDue = req.AmountDue,
             AmountPaid = req.AmountPaid,
             PaymentDate = DateTime.UtcNow,
-            DueDate = req.DueDate,
+            DueDate = AsUtc(req.DueDate),
             Notes = req.Notes,
             ProcessedSessionsCount = 0,
             CommissionDistributionCompleted = false,
@@ -269,12 +283,19 @@ public class PaymentService : IPaymentService
     public async Task<ApiResponse<PagedResults<PaymentResponse>>> GetByPeriodPagedAsync(
     PaymentFilterRequest req)
     {
+        // FIX: req.From/req.To are bound from the incoming request (query
+        // string / JSON body) and can be Kind=Unspecified. Normalize before
+        // they reach the repository, which pushes them into a Postgres
+        // "timestamp with time zone" comparison.
+        var from = AsUtc(req.From);
+        var to = AsUtc(req.To);
+
         // ── DTO unpacking happens here, at the service layer — the repository
         // only ever sees plain parameters. ─────────────────────────────────────
         var result = await _uow.Payments.GetByPeriodPagedAsync(
             req.BranchId,
-            req.From,
-            req.To,
+            from,
+            to,
             req.Page,
             req.PageSize,
             req.Search,
@@ -297,6 +318,12 @@ public class PaymentService : IPaymentService
 
     public async Task<ApiResponse<IEnumerable<PaymentResponse>>> GetByPeriodAsync(Guid branchId, DateTime from, DateTime to)
     {
+        // FIX: `from`/`to` are method parameters that can arrive as
+        // Kind=Unspecified from the caller/model binder. Normalize before
+        // the repository call.
+        from = AsUtc(from);
+        to = AsUtc(to);
+
         var payments = await _uow.Payments.GetByPeriodAsync(from, to);
         var filtered = payments.Where(p =>
             p.Enrollment?.Group?.BranchId == branchId);
@@ -307,7 +334,7 @@ public class PaymentService : IPaymentService
     CommissionLedgerFilterRequest req)
     {
         var (ledgers, totalCount) = await _uow.CommissionLedgers.GetByInstructorPagedAsync(
-            req.InstructorId, req.From, req.To, req.Page, req.PageSize);
+            req.InstructorId, AsUtc(req.From), AsUtc(req.To), req.Page, req.PageSize);
 
         var mapped = new PagedResults<CommissionLedgerResponse>
         {
@@ -335,7 +362,7 @@ public class PaymentService : IPaymentService
     public async Task<ApiResponse<IEnumerable<CommissionLedgerResponse>>> GetCommissionByInstructorAsync(
         Guid instructorId, DateTime? from, DateTime? to)
     {
-        var ledgers = await _uow.CommissionLedgers.GetByInstructorAsync(instructorId, from, to);
+        var ledgers = await _uow.CommissionLedgers.GetByInstructorAsync(instructorId, AsUtc(from), AsUtc(to));
         return ApiResponse<IEnumerable<CommissionLedgerResponse>>.Ok(ledgers.Select(l =>
             new CommissionLedgerResponse(
                 l.Id,
@@ -357,6 +384,14 @@ public class PaymentService : IPaymentService
     public async Task<ApiResponse<IEnumerable<PaymentDebtResponse>>> GetDebtsByBranchAsync(
      Guid branchId, DateTime? from = null, DateTime? to = null)
     {
+        // NOTE: from/to are only used below in in-memory comparisons against
+        // `referenceDate` (a value computed in C#, not translated to SQL), so
+        // they never reach Npgsql directly in this method. Still normalized
+        // here for consistency and in case future changes push them into a
+        // query.
+        from = AsUtc(from);
+        to = AsUtc(to);
+
         // 1. Overdue threshold
         var setting = await _uow.Repository<AppSetting>()
             .FirstOrDefaultAsync(s => s.Key == "payment.overdue_days");

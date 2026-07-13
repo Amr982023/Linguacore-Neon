@@ -391,8 +391,8 @@ function ExamDetail({ exam, onClose, branchId }) {
     refetchOnReconnect: false,
   });
   const { data: rankData } = useQuery({
-    queryKey: ["ranking", exam.groupId],
-    queryFn: () => examsApi.getRanking(exam.groupId),
+    queryKey: ["ranking-exam", exam.id],
+    queryFn: () => examsApi.getRankingByExam(exam.id),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
@@ -683,6 +683,12 @@ function RankingMedal({ rank }) {
 // ── RankingsSection ───────────────────────────────────────────────────────────
 // Server-side aggregation now: one paginated request per Apply, instead of
 // fetching every exam's raw results and aggregating in the browser.
+//
+// NOTE: the Language → Level → Group cascade below reads g.languageId and
+// g.levelId off each group in `groups`. As of this version the backend's
+// GroupResponse now includes a real LevelId (distinct from LanguageLevelId),
+// so this cascade populates correctly. If levelOptions/groupOptions ever go
+// empty again, check that the API is still sending levelId on groups.
 function RankingsSection({ groups = [], branchId }) {
   const [draftRankFilters, setDraftRankFilters] = useState({
     ...DEFAULT_RANK_FILTERS,
@@ -734,17 +740,17 @@ function RankingsSection({ groups = [], branchId }) {
   );
 
   const hasUnappliedRankChanges = useMemo(
-    () => JSON.stringify(draftRankFilters) !== JSON.stringify(appliedRankFilters),
+    () =>
+      JSON.stringify(draftRankFilters) !== JSON.stringify(appliedRankFilters),
     [draftRankFilters, appliedRankFilters],
   );
 
   // ── Dropdown option lists ──────────────────────────────────────────────────
   // Language/Level/Group options are derived client-side from the already-loaded
   // `groups` lookup (small, loaded once) — no network call for these.
-  // ASSUMPTION: each group in `groups` carries languageId/levelId fields
-  // alongside the display languageName/levelCode used elsewhere on this page.
-  // If groupsApi doesn't currently return those IDs, they need to be added to
-  // the Group response DTO for this filter to work.
+  // Each group in `groups` carries languageId/levelId fields (Level.Id, not the
+  // LanguageLevel join id) alongside the display languageName/levelCode used
+  // elsewhere on this page.
   const languageOptions = useMemo(() => {
     const seen = new Map();
     groups.forEach((g) => {
@@ -771,7 +777,10 @@ function RankingsSection({ groups = [], branchId }) {
   const groupOptions = useMemo(
     () =>
       groups.filter((g) => {
-        if (draftRankFilters.languageId && g.languageId !== draftRankFilters.languageId)
+        if (
+          draftRankFilters.languageId &&
+          g.languageId !== draftRankFilters.languageId
+        )
           return false;
         if (draftRankFilters.levelId && g.levelId !== draftRankFilters.levelId)
           return false;
@@ -786,7 +795,9 @@ function RankingsSection({ groups = [], branchId }) {
   const examOptionsParams = {
     ...(draftRankFilters.groupId && { groupId: draftRankFilters.groupId }),
     ...(!draftRankFilters.groupId &&
-      draftRankFilters.languageId && { languageId: draftRankFilters.languageId }),
+      draftRankFilters.languageId && {
+        languageId: draftRankFilters.languageId,
+      }),
     ...(!draftRankFilters.groupId &&
       draftRankFilters.levelId && { levelId: draftRankFilters.levelId }),
   };
@@ -810,7 +821,9 @@ function RankingsSection({ groups = [], branchId }) {
       appliedRankFilters.groupId && { groupId: appliedRankFilters.groupId }),
     ...(!appliedRankFilters.examId &&
       !appliedRankFilters.groupId &&
-      appliedRankFilters.languageId && { languageId: appliedRankFilters.languageId }),
+      appliedRankFilters.languageId && {
+        languageId: appliedRankFilters.languageId,
+      }),
     ...(!appliedRankFilters.examId &&
       !appliedRankFilters.groupId &&
       appliedRankFilters.levelId && { levelId: appliedRankFilters.levelId }),
@@ -846,7 +859,9 @@ function RankingsSection({ groups = [], branchId }) {
       if (g) parts.push(`Group: ${g.name}`);
     }
     if (appliedRankFilters.languageId) {
-      const l = languageOptions.find((x) => x.id === appliedRankFilters.languageId);
+      const l = languageOptions.find(
+        (x) => x.id === appliedRankFilters.languageId,
+      );
       if (l) parts.push(`Language: ${l.name}`);
     }
     if (appliedRankFilters.levelId) {
@@ -1133,7 +1148,9 @@ export default function Exams() {
 
   const isAnyFilterActive = useMemo(
     () =>
-      Object.entries(appliedFilters).some(([k, v]) => v !== DEFAULT_FILTERS[k]) ||
+      Object.entries(appliedFilters).some(
+        ([k, v]) => v !== DEFAULT_FILTERS[k],
+      ) ||
       Object.entries(draftFilters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
     [appliedFilters, draftFilters],
   );
@@ -1163,9 +1180,15 @@ export default function Exams() {
     ...(appliedFilters.typeFilter && {
       isFinalExam: appliedFilters.typeFilter === "final",
     }),
-    ...(appliedFilters.monthFilter && { month: Number(appliedFilters.monthFilter) }),
-    ...(appliedFilters.yearFilter && { year: Number(appliedFilters.yearFilter) }),
-    ...(appliedFilters.resultFilter && { resultFilter: appliedFilters.resultFilter }),
+    ...(appliedFilters.monthFilter && {
+      month: Number(appliedFilters.monthFilter),
+    }),
+    ...(appliedFilters.yearFilter && {
+      year: Number(appliedFilters.yearFilter),
+    }),
+    ...(appliedFilters.resultFilter && {
+      resultFilter: appliedFilters.resultFilter,
+    }),
   };
 
   // ── Main paged exam list — server-ordered newest-created-first ─────────────
@@ -1202,7 +1225,11 @@ export default function Exams() {
   const { data: finalCountRes } = useQuery({
     queryKey: ["exams-count-final", branchId],
     queryFn: () =>
-      examsApi.getByBranch(branchId, { page: 1, pageSize: 1, isFinalExam: true }),
+      examsApi.getByBranch(branchId, {
+        page: 1,
+        pageSize: 1,
+        isFinalExam: true,
+      }),
     enabled: !!branchId,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
@@ -1212,7 +1239,11 @@ export default function Exams() {
   const { data: regularCountRes } = useQuery({
     queryKey: ["exams-count-regular", branchId],
     queryFn: () =>
-      examsApi.getByBranch(branchId, { page: 1, pageSize: 1, isFinalExam: false }),
+      examsApi.getByBranch(branchId, {
+        page: 1,
+        pageSize: 1,
+        isFinalExam: false,
+      }),
     enabled: !!branchId,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
@@ -1537,7 +1568,9 @@ export default function Exams() {
           groups={groups}
           onSubmit={createMut.mutate}
           loading={createMut.isPending}
-          initial={draftFilters.groupId ? { groupId: draftFilters.groupId } : {}}
+          initial={
+            draftFilters.groupId ? { groupId: draftFilters.groupId } : {}
+          }
         />
       </Modal>
 

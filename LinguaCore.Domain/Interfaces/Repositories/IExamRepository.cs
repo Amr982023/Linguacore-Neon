@@ -8,6 +8,8 @@ public interface IExamRepository : IGenericRepository<Exam>
     Task<IEnumerable<Exam>> GetByGroupAsync(Guid groupId);
     Task<IEnumerable<ExamResult>> GetResultsByExamAsync(Guid examId);
     Task<IEnumerable<ExamResult>> GetResultsByStudentAsync(Guid studentId);
+    Task<IEnumerable<ExamResult>> GetRankingByExamAsync(Guid examId);
+
     Task<IEnumerable<ExamResult>> GetRankingByGroupAsync(Guid groupId, string? periodLabel = null);
 
     // ?? NEW: paginated + filtered branch-wide exam list, newest-created-first ??
