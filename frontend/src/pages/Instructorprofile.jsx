@@ -124,8 +124,12 @@ const TABS = [
 ];
 
 // unwrap { data: [...] } envelope or plain array
-const unwrap = (r) => (Array.isArray(r) ? r : (r?.data ?? []));
-
+const unwrap = (r) => {
+  const d = Array.isArray(r) ? r : (r?.data ?? []);
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d?.items)) return d.items;
+  return [];
+};
 // unwrap a PagedResult<T>-shaped envelope: { items, totalCount, page, pageSize, totalPages }
 const unwrapPaged = (r) => r?.data?.data ?? r?.data ?? null;
 

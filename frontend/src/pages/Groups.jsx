@@ -1510,7 +1510,10 @@ export default function Groups() {
   const totalPages = res?.data?.data?.totalPages || 1;
 
   const languages = langRes?.data?.data || [];
-  const instructors = instrRes?.data?.data || [];
+  const instructorsPayload = instrRes?.data?.data;
+  const instructors = Array.isArray(instructorsPayload)
+    ? instructorsPayload
+    : instructorsPayload?.items || [];
   const halls = hallRes?.data?.data || [];
   const zooms = zoomRes?.data?.data || [];
   const statuses = statRes?.data?.data || [];
