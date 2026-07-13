@@ -30,9 +30,13 @@ import {
   BookOpen,
   RotateCcw,
   PowerOff,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
-const DEFAULT_FILTERS = { search: "", langFilter: "", activeFilter: "" };
+const PAGE_SIZE = 10;
+const DEFAULT_FILTERS = { search: "", languageId: "", activeFilter: "" };
 const PHONE_RE = /^[0-9+\s\-()]{7,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NATIONAL_ID_RE = /^[0-9]{14}$/;
@@ -224,11 +228,19 @@ function InstructorDetail({ instructor, onClose }) {
   const { data: commRes } = useQuery({
     queryKey: ["comm", instructor.id],
     queryFn: () => paymentsApi.getCommission(instructor.id, null, null),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const { data: closRes } = useQuery({
     queryKey: ["instructor-closings", instructor.id],
     queryFn: () => closingApi.getByInstructor(instructor.id),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const commissions = commRes?.data?.data || [];
@@ -383,49 +395,187 @@ function InstructorDetail({ instructor, onClose }) {
   );
 }
 
+// ── Pagination ────────────────────────────────────────────────────────────────
+function Pagination({ page, totalPages, totalCount, pageSize, onPageChange }) {
+  if (totalPages <= 0) return null;
+  const from = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalCount);
+  return (
+    <div className="fixed bottom-0 left-72 right-5 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
+      <div className="flex items-center justify-between px-6 py-3 text-sm text-gray-600 dark:text-gray-400">
+        <span>
+          {from}–{to} of {totalCount} records
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPageChange(page - 1)}
+            disabled={page === 1}
+            className="p-2.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter(
+              (p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1,
+            )
+            .reduce((acc, p, idx, arr) => {
+              if (idx > 0 && p - arr[idx - 1] > 1) acc.push("…");
+              acc.push(p);
+              return acc;
+            }, [])
+            .map((p, i) =>
+              p === "…" ? (
+                <span key={`e-${i}`} className="px-1">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={p}
+                  onClick={() => onPageChange(p)}
+                  className={`w-8 h-8 rounded text-xs font-medium transition-colors ${
+                    p === page
+                      ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
+                      : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  {p}
+                </button>
+              ),
+            )}
+          <button
+            onClick={() => onPageChange(page + 1)}
+            disabled={page === totalPages}
+            className="p-2.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChevronRight size={24} />
+          </button>
+        </div>
+        <span className="text-xs text-gray-400">
+          Page {page} of {totalPages}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Instructors() {
   const { branchId } = useAuthStore();
   const qc = useQueryClient();
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
+
+  // draftFilters: bound to the inputs, no network effect on change.
+  // appliedFilters: only updated when the user explicitly hits Apply
+  // (or Enter in the search box), or Reset. This is what drives the query.
+  const [draftFilters, setDraftFilters] = useState({ ...DEFAULT_FILTERS });
+  const [appliedFilters, setAppliedFilters] = useState({ ...DEFAULT_FILTERS });
+  const [page, setPage] = useState(1);
+
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
-  // ── new: track which instructor is pending toggle confirmation ──
   const [toggleTarget, setToggleTarget] = useState(null);
 
-  const setFilter = (key, value) =>
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  const resetFilters = () => setFilters({ ...DEFAULT_FILTERS });
+  const setDraft = (key, value) =>
+    setDraftFilters((prev) => ({ ...prev, [key]: value }));
+
+  const applyFilters = (e) => {
+    e?.preventDefault?.();
+    setAppliedFilters(draftFilters);
+    setPage(1);
+  };
+
+  const resetFilters = () => {
+    setDraftFilters({ ...DEFAULT_FILTERS });
+    setAppliedFilters({ ...DEFAULT_FILTERS });
+    setPage(1);
+  };
+
   const isAnyFilterActive = useMemo(
-    () => Object.entries(filters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
-    [filters],
+    () =>
+      Object.entries(appliedFilters).some(([k, v]) => v !== DEFAULT_FILTERS[k]) ||
+      Object.entries(draftFilters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
+    [appliedFilters, draftFilters],
   );
 
-  const { data: res, isLoading } = useQuery({
-    queryKey: ["instructors", branchId],
-    queryFn: () => instructorsApi.getByBranch(branchId),
+  const hasUnappliedChanges = useMemo(
+    () => JSON.stringify(draftFilters) !== JSON.stringify(appliedFilters),
+    [draftFilters, appliedFilters],
+  );
+
+  const queryParams = {
+    page,
+    pageSize: PAGE_SIZE,
+    ...(appliedFilters.search && { search: appliedFilters.search }),
+    ...(appliedFilters.languageId && { languageId: appliedFilters.languageId }),
+    ...(appliedFilters.activeFilter && {
+      isActive: appliedFilters.activeFilter === "active",
+    }),
+  };
+
+  // ── Main paged list — only refetches on branch/page/applied-filter change,
+  // never on window focus / remount / reconnect ──────────────────────────────
+  const { data: res, isLoading, isFetching } = useQuery({
+    queryKey: ["instructors", branchId, queryParams],
+    queryFn: () => instructorsApi.getByBranch(branchId, queryParams),
     enabled: !!branchId,
+    keepPreviousData: true,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
+
   const { data: langRes } = useQuery({
     queryKey: ["languages"],
     queryFn: () => lookupsApi.getLanguages(),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
-  const instructors = res?.data?.data || [];
+  // ── Lightweight count queries for the stat cards (pageSize:1, we only need totalCount) ──
+  const { data: activeCountRes } = useQuery({
+    queryKey: ["instructors-count-active", branchId],
+    queryFn: () =>
+      instructorsApi.getByBranch(branchId, {
+        page: 1,
+        pageSize: 1,
+        isActive: true,
+      }),
+    enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+  const { data: inactiveCountRes } = useQuery({
+    queryKey: ["instructors-count-inactive", branchId],
+    queryFn: () =>
+      instructorsApi.getByBranch(branchId, {
+        page: 1,
+        pageSize: 1,
+        isActive: false,
+      }),
+    enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+
+  const pagedData = res?.data?.data;
+  const instructors = pagedData?.items || [];
+  const totalCount = pagedData?.totalCount ?? 0;
+  const totalPages = pagedData?.totalPages ?? 1;
   const languages = langRes?.data?.data || [];
+  const activeCount = activeCountRes?.data?.data?.totalCount ?? 0;
+  const inactiveCount = inactiveCountRes?.data?.data?.totalCount ?? 0;
 
-  const filtered = instructors.filter((i) => {
-    const n = `${i.person?.firstName} ${i.person?.lastName}`.toLowerCase();
-    if (filters.search && !n.includes(filters.search.toLowerCase()))
-      return false;
-    if (filters.langFilter && !(i.languages || []).includes(filters.langFilter))
-      return false;
-    if (filters.activeFilter === "active" && !i.isActive) return false;
-    if (filters.activeFilter === "inactive" && i.isActive) return false;
-    return true;
-  });
-
-  const invalidate = () => qc.invalidateQueries(["instructors"]);
+  const invalidate = () => {
+    qc.invalidateQueries(["instructors"]);
+    qc.invalidateQueries(["instructors-count-active"]);
+    qc.invalidateQueries(["instructors-count-inactive"]);
+  };
 
   const createMut = useMutation({
     mutationFn: (d) =>
@@ -461,7 +611,6 @@ export default function Instructors() {
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
 
-  // ── new mutation ──────────────────────────────────────────────────────────
   const toggleMut = useMutation({
     mutationFn: (id) => instructorsApi.toggleActive(id),
     onSuccess: (_, id) => {
@@ -479,10 +628,10 @@ export default function Instructors() {
   });
 
   return (
-    <div className="p-6">
+    <div className="p-6 pb-16 min-h-screen flex flex-col">
       <PageHeader
         title="Instructors"
-        subtitle={`${instructors.filter((i) => i.isActive).length} active`}
+        subtitle={`${activeCount} active`}
         action={
           <Button icon={Plus} onClick={() => setModal("create")}>
             Add Instructor
@@ -493,58 +642,67 @@ export default function Instructors() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard
           title="Total Active"
-          value={instructors.filter((i) => i.isActive).length}
+          value={activeCount}
           icon={UserCheck}
           color="bg-primary-900"
         />
         <StatCard
           title="Total Inactive"
-          value={instructors.filter((i) => !i.isActive).length}
+          value={inactiveCount}
           icon={UserCheck}
           color="bg-red-500"
         />
         <StatCard
-          title="Languages Taught"
-          value={
-            [...new Set(instructors.flatMap((i) => i.languages || []))].length
-          }
+          title="Languages Offered"
+          value={languages.length}
           icon={BookOpen}
           color="bg-blue-500"
         />
       </div>
 
       <div className="card">
-        <div className="p-4 border-b dark:border-gray-700 flex flex-wrap items-center gap-3">
+        <form
+          onSubmit={applyFilters}
+          className="p-4 border-b dark:border-gray-700 flex flex-wrap items-center gap-3"
+        >
           <SearchInput
-            value={filters.search}
-            onChange={(v) => setFilter("search", v)}
-            placeholder="Search instructor…"
+            value={draftFilters.search}
+            onChange={(v) => setDraft("search", v)}
+            placeholder="Search instructor… (press Enter or Apply)"
           />
           <select
             className="input w-40 text-sm"
-            value={filters.langFilter}
-            onChange={(e) => setFilter("langFilter", e.target.value)}
+            value={draftFilters.languageId}
+            onChange={(e) => setDraft("languageId", e.target.value)}
           >
             <option value="">All Languages</option>
             {languages.map((l) => (
-              <option key={l.id} value={l.name}>
+              <option key={l.id} value={l.id}>
                 {l.name}
               </option>
             ))}
           </select>
           <select
             className="input w-36 text-sm"
-            value={filters.activeFilter}
-            onChange={(e) => setFilter("activeFilter", e.target.value)}
+            value={draftFilters.activeFilter}
+            onChange={(e) => setDraft("activeFilter", e.target.value)}
           >
             <option value="">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
-          <span className="text-xs text-gray-500 ml-auto">
-            {filtered.length} records
-          </span>
+
+          <Button
+            type="submit"
+            icon={Search}
+            variant={hasUnappliedChanges ? "primary" : "secondary"}
+            loading={isFetching && !isLoading}
+          >
+            Apply
+          </Button>
+
           <button
+            type="button"
             onClick={resetFilters}
             disabled={!isAnyFilterActive}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
@@ -552,11 +710,15 @@ export default function Instructors() {
           >
             <RotateCcw size={12} /> Reset Filters
           </button>
-        </div>
+
+          <span className="text-xs text-gray-500 ml-auto">
+            {totalCount} records
+          </span>
+        </form>
 
         <Table
           loading={isLoading}
-          data={filtered}
+          data={instructors}
           emptyMsg="No instructors."
           columns={[
             {
@@ -612,7 +774,6 @@ export default function Instructors() {
                   >
                     <Edit size={14} />
                   </button>
-                  {/* ── toggle active button ── */}
                   <button
                     onClick={() => setToggleTarget(r)}
                     disabled={toggleMut.isPending && toggleTarget?.id === r.id}
@@ -632,6 +793,14 @@ export default function Instructors() {
           ]}
         />
       </div>
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
 
       {/* ── toggle confirm dialog ── */}
       {toggleTarget && (

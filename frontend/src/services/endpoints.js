@@ -23,7 +23,8 @@ export const studentsApi = {
 };
 
 export const instructorsApi = {
-  getByBranch: (branchId) => api.get(`/instructors/branch/${branchId}`),
+  // getByBranch: (branchId) => api.get(`/instructors/branch/${branchId}`),
+  getByBranch: (branchId, params) => api.get(`/instructors/branch/${branchId}`, { params }),
   getById: (id) => api.get(`/instructors/${id}`),
   getByLanguage: (languageId) => api.get(`/instructors/language/${languageId}`),
   create: (data) => api.post("/instructors", data),
@@ -87,14 +88,16 @@ export const sessionsApi = {
 export const examsApi = {
   getByGroup: (groupId) => api.get(`/exams/group/${groupId}`),
   getResults: (examId) => api.get(`/exams/${examId}/results`),
-  getResultsByStudent: (studentId) =>
-    api.get(`/exams/student/${studentId}/results`),
-  getRanking: (groupId) => api.get(`/exams/group/${groupId}/ranking`),
+  getResultsByStudent: (studentId) => api.get(`/exams/student/${studentId}/results`),
+  getRanking: (groupId) => api.get(`/exams/group/${groupId}/ranking`), // unchanged, used by ExamDetail
   create: (data) => api.post("/exams", data),
   addResult: (data) => api.post("/exams/result", data),
-  issueCertificate: (examResultId) =>
-    api.post(`/exams/${examResultId}/certificate`),
+  issueCertificate: (examResultId) => api.post(`/exams/${examResultId}/certificate`),
   update: (data) => api.put("/exams", data),
+  // NEW:
+  getByBranch: (branchId, params) => api.get(`/exams/branch/${branchId}`, { params }),
+  getOptions: (branchId, params) => api.get(`/exams/branch/${branchId}/options`, { params }),
+  getRankingByBranch: (branchId, params) => api.get(`/exams/branch/${branchId}/ranking`, { params }),
 };
 
 export const certificatesApi = {

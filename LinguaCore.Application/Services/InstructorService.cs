@@ -22,14 +22,21 @@ public class InstructorService : IInstructorService
 
         return ApiResponse<InstructorResponse>.Ok(MapToResponse(instructor));
     }
+
     public async Task<ApiResponse<InstructorResponse>> CreateAsync(CreateInstructorRequest req)
     {
         var person = new Person
         {
-            FirstName = req.FirstName, SecondName = req.SecondName, LastName = req.LastName,
-            NationalId = req.NationalId, Age = req.Age, Gender = req.Gender,
-            Phone = req.Phone, WhatsappNumber = req.WhatsappNumber,
-            Address = req.Address, Email = req.Email,
+            FirstName = req.FirstName,
+            SecondName = req.SecondName,
+            LastName = req.LastName,
+            NationalId = req.NationalId,
+            Age = req.Age,
+            Gender = req.Gender,
+            Phone = req.Phone,
+            WhatsappNumber = req.WhatsappNumber,
+            Address = req.Address,
+            Email = req.Email,
         };
         await _uow.Repository<Person>().AddAsync(person);
 
@@ -79,10 +86,27 @@ public class InstructorService : IInstructorService
         return ApiResponse<InstructorResponse>.Ok(MapToResponse(inst));
     }
 
-    public async Task<ApiResponse<IEnumerable<InstructorResponse>>> GetByBranchAsync(Guid branchId)
+    // ?? CHANGED: paginated + filtered, mirrors WaitingListService.GetByBranchAsync ??
+    public async Task<ApiResponse<PagedResponse<InstructorResponse>>> GetByBranchAsync(
+        Guid branchId, InstructorFilterRequest filter)
     {
-        var instructors = await _uow.Instructors.GetByBranchAsync(branchId);
-        return ApiResponse<IEnumerable<InstructorResponse>>.Ok(instructors.Select(MapToResponse));
+        var (items, total) = await _uow.Instructors.GetByBranchAsync(
+            branchId,
+            filter.Page, filter.PageSize,
+            filter.Search, filter.LanguageId, filter.IsActive);
+
+        var totalPages = filter.PageSize > 0
+            ? (int)Math.Ceiling(total / (double)filter.PageSize)
+            : 0;
+
+        var response = new PagedResponse<InstructorResponse>(
+            items.Select(MapToResponse),
+            total,
+            filter.Page,
+            filter.PageSize,
+            totalPages);
+
+        return ApiResponse<PagedResponse<InstructorResponse>>.Ok(response);
     }
 
     public async Task<ApiResponse<IEnumerable<InstructorResponse>>> GetByLanguageAsync(Guid languageId)
@@ -99,7 +123,7 @@ public class InstructorService : IInstructorService
     i.IsActive,
     i.InstructorLanguages?.Select(il => il.Language?.Name ?? "") ?? Enumerable.Empty<string>(),
     i.InstructorLanguages?.Select(il => il.LanguageId) ?? Enumerable.Empty<Guid>(),
-    i.Groups?.Select(g => new InstructorGroupSummary(      // ? add
+    i.Groups?.Select(g => new InstructorGroupSummary(
         g.Id,
         g.Name,
         g.LanguageLevel?.Language?.Id ?? Guid.Empty

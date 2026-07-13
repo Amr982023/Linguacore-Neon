@@ -50,7 +50,6 @@ public class ExamsController : ControllerBase
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(userIdClaim, out var currentUserId))
             return Unauthorized("Invalid user identity.");
-
         var result = await _service.CreateAsync(req, currentUserId);
         return result.Success ? Ok(result) : BadRequest(result);
     }
@@ -62,7 +61,6 @@ public class ExamsController : ControllerBase
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(userIdClaim, out var currentUserId))
             return Unauthorized("Invalid user identity.");
-
         var result = await _service.AddResultAsync(req, currentUserId);
         return result.Success ? Ok(result) : BadRequest(result);
     }
@@ -72,6 +70,31 @@ public class ExamsController : ControllerBase
     public async Task<IActionResult> IssueCertificate(Guid examResultId)
     {
         var result = await _service.IssueCertificateAsync(examResultId);
+        return result.Success ? Ok(result) : BadRequest(result);
+    }
+
+    // ?? NEW: branch-wide paginated + filtered exam list, newest-created-first ??
+    [HttpGet("branch/{branchId}")]
+    [Authorize(Policy = PermissionPolicies.ExamsRead)]
+    public async Task<IActionResult> GetByBranch(Guid branchId, [FromQuery] ExamFilterRequest filter)
+    {
+        var result = await _service.GetByBranchAsync(branchId, filter);
+        return result.Success ? Ok(result) : BadRequest(result);
+    }
+
+    // ?? NEW: lightweight dropdown-source list for the ranking filter UI ????????
+    [HttpGet("branch/{branchId}/options")]
+    [Authorize(Policy = PermissionPolicies.ExamsRead)]
+    public async Task<IActionResult> GetExamOptions(
+        Guid branchId, [FromQuery] Guid? groupId, [FromQuery] Guid? languageId, [FromQuery] Guid? levelId)
+        => Ok(await _service.GetExamOptionsAsync(branchId, groupId, languageId, levelId));
+
+    // ?? NEW: branch-wide aggregated + paginated ranking ?????????????????????????
+    [HttpGet("branch/{branchId}/ranking")]
+    [Authorize(Policy = PermissionPolicies.ExamsRead)]
+    public async Task<IActionResult> GetRankingByBranch(Guid branchId, [FromQuery] RankingFilterRequest filter)
+    {
+        var result = await _service.GetRankingByBranchAsync(branchId, filter);
         return result.Success ? Ok(result) : BadRequest(result);
     }
 }

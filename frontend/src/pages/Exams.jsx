@@ -33,10 +33,19 @@ import {
   Trophy,
   Pencil,
   ArrowUpDown,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 const PAGE_SIZE = 15;
 const RANKING_PAGE_SIZE = 20;
+const CURRENT_YEAR = new Date().getFullYear();
+// NOTE: without a dedicated "distinct years with exams" endpoint we can't derive
+// this dynamically anymore now that the list is paginated server-side. Fixed
+// 6-year window (current + 5 back) — bump this if you need older years.
+const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
+
 const MONTHS = [
   { value: "1", label: "January" },
   { value: "2", label: "February" },
@@ -51,13 +60,20 @@ const MONTHS = [
   { value: "11", label: "November" },
   { value: "12", label: "December" },
 ];
+
 const DEFAULT_FILTERS = {
-  selGroup: "",
+  groupId: "",
   typeFilter: "",
   monthFilter: "",
   yearFilter: "",
-  periodLabelFilter: "",
   resultFilter: "",
+};
+
+const DEFAULT_RANK_FILTERS = {
+  languageId: "",
+  levelId: "",
+  groupId: "",
+  examId: "",
 };
 
 // ── StudentSearchPicker ───────────────────────────────────────────────────────
@@ -361,27 +377,44 @@ function ResultForm({ examId, exam, onSubmit, loading, students = [] }) {
 
 // ── ExamDetail ────────────────────────────────────────────────────────────────
 function ExamDetail({ exam, onClose, branchId }) {
+  const qc = useQueryClient();
   const [tab, setTab] = useState("results");
   const [addResult, setAddResult] = useState(false);
-  const [marksSort, setMarksSort] = useState("desc"); // NEW: "desc" | "asc"
+  const [marksSort, setMarksSort] = useState("desc"); // "desc" | "asc"
 
   const { data: resData, refetch } = useQuery({
     queryKey: ["results", exam.id],
     queryFn: () => examsApi.getResults(exam.id),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
   const { data: rankData } = useQuery({
     queryKey: ["ranking", exam.groupId],
     queryFn: () => examsApi.getRanking(exam.groupId),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
   const { data: enrRes } = useQuery({
     queryKey: ["enr-g", exam.groupId],
     queryFn: () => enrollmentsApi.getByGroup(exam.groupId),
     enabled: !!exam.groupId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
   const { data: studentsRes } = useQuery({
     queryKey: ["students", branchId],
     queryFn: () => studentsApi.getByBranch(branchId),
     enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const enrolledStudents = useMemo(() => {
@@ -411,6 +444,11 @@ function ExamDetail({ exam, onClose, branchId }) {
     onSuccess: (res) => {
       toast.success("Result saved");
       refetch();
+      // The main Exams list shows PassedCount/FailedCount and the branch-wide
+      // Rankings tab aggregates over results — both are now stale.
+      qc.invalidateQueries(["exams"]);
+      qc.invalidateQueries(["exams-count"]);
+      qc.invalidateQueries(["exam-ranking"]);
       setAddResult(false);
       const resultId = res?.data?.data?.id;
       const passed = res?.data?.data?.passed;
@@ -425,7 +463,6 @@ function ExamDetail({ exam, onClose, branchId }) {
     onError: (e) => toast.error(e.response?.data?.message || "Error"),
   });
 
-  // NEW: results sorted by marksObtained (toggleable asc/desc)
   const results = useMemo(() => {
     const list = resData?.data?.data || [];
     const sorted = [...list].sort((a, b) => b.marksObtained - a.marksObtained);
@@ -484,7 +521,6 @@ function ExamDetail({ exam, onClose, branchId }) {
 
       {tab === "results" && (
         <>
-          {/* NEW: sort toggle above the results table */}
           <div className="flex justify-end mt-3 mb-1">
             <button
               type="button"
@@ -645,156 +681,200 @@ function RankingMedal({ rank }) {
 }
 
 // ── RankingsSection ───────────────────────────────────────────────────────────
-function RankingsSection({ groups = [], allExams = [], branchId }) {
-  const [filterExam, setFilterExam] = useState("");
-  const [filterGroup, setFilterGroup] = useState("");
-  const [filterLanguage, setFilterLanguage] = useState("");
-  const [filterLevel, setFilterLevel] = useState("");
+// Server-side aggregation now: one paginated request per Apply, instead of
+// fetching every exam's raw results and aggregating in the browser.
+function RankingsSection({ groups = [], branchId }) {
+  const [draftRankFilters, setDraftRankFilters] = useState({
+    ...DEFAULT_RANK_FILTERS,
+  });
+  const [appliedRankFilters, setAppliedRankFilters] = useState({
+    ...DEFAULT_RANK_FILTERS,
+  });
   const [rankPage, setRankPage] = useState(1);
 
-  const resetRankFilters = () => {
-    setFilterExam("");
-    setFilterGroup("");
-    setFilterLanguage("");
-    setFilterLevel("");
+  const setRankDraft = (key, value) => {
+    setDraftRankFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      // cascading resets, mirrors the language → level → group → exam narrowing
+      if (key === "languageId") {
+        next.levelId = "";
+        next.groupId = "";
+        next.examId = "";
+      } else if (key === "levelId") {
+        next.groupId = "";
+        next.examId = "";
+      } else if (key === "groupId") {
+        next.examId = "";
+      }
+      return next;
+    });
+  };
+
+  const applyRankFilters = (e) => {
+    e?.preventDefault?.();
+    setAppliedRankFilters(draftRankFilters);
     setRankPage(1);
   };
-  const isAnyRankFilterActive =
-    !!filterExam || !!filterGroup || !!filterLanguage || !!filterLevel;
 
-  const languageOptions = useMemo(
+  const resetRankFilters = () => {
+    setDraftRankFilters({ ...DEFAULT_RANK_FILTERS });
+    setAppliedRankFilters({ ...DEFAULT_RANK_FILTERS });
+    setRankPage(1);
+  };
+
+  const isAnyRankFilterActive = useMemo(
     () =>
-      [...new Set(groups.map((g) => g.languageName).filter(Boolean))].sort(),
-    [groups],
+      Object.entries(appliedRankFilters).some(
+        ([k, v]) => v !== DEFAULT_RANK_FILTERS[k],
+      ) ||
+      Object.entries(draftRankFilters).some(
+        ([k, v]) => v !== DEFAULT_RANK_FILTERS[k],
+      ),
+    [appliedRankFilters, draftRankFilters],
   );
+
+  const hasUnappliedRankChanges = useMemo(
+    () => JSON.stringify(draftRankFilters) !== JSON.stringify(appliedRankFilters),
+    [draftRankFilters, appliedRankFilters],
+  );
+
+  // ── Dropdown option lists ──────────────────────────────────────────────────
+  // Language/Level/Group options are derived client-side from the already-loaded
+  // `groups` lookup (small, loaded once) — no network call for these.
+  // ASSUMPTION: each group in `groups` carries languageId/levelId fields
+  // alongside the display languageName/levelCode used elsewhere on this page.
+  // If groupsApi doesn't currently return those IDs, they need to be added to
+  // the Group response DTO for this filter to work.
+  const languageOptions = useMemo(() => {
+    const seen = new Map();
+    groups.forEach((g) => {
+      if (g.languageId && !seen.has(g.languageId)) {
+        seen.set(g.languageId, g.languageName);
+      }
+    });
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [groups]);
+
   const levelOptions = useMemo(() => {
-    const source = filterLanguage
-      ? groups.filter((g) => g.languageName === filterLanguage)
+    const source = draftRankFilters.languageId
+      ? groups.filter((g) => g.languageId === draftRankFilters.languageId)
       : groups;
-    return [...new Set(source.map((g) => g.levelCode).filter(Boolean))].sort();
-  }, [groups, filterLanguage]);
+    const seen = new Map();
+    source.forEach((g) => {
+      if (g.levelId && !seen.has(g.levelId)) {
+        seen.set(g.levelId, g.levelCode);
+      }
+    });
+    return [...seen.entries()].map(([id, code]) => ({ id, code }));
+  }, [groups, draftRankFilters.languageId]);
+
   const groupOptions = useMemo(
     () =>
       groups.filter((g) => {
-        if (filterLanguage && g.languageName !== filterLanguage) return false;
-        if (filterLevel && g.levelCode !== filterLevel) return false;
+        if (draftRankFilters.languageId && g.languageId !== draftRankFilters.languageId)
+          return false;
+        if (draftRankFilters.levelId && g.levelId !== draftRankFilters.levelId)
+          return false;
         return true;
       }),
-    [groups, filterLanguage, filterLevel],
+    [groups, draftRankFilters.languageId, draftRankFilters.levelId],
   );
-  const examOptions = useMemo(() => {
-    if (!filterGroup) {
-      const groupIds = new Set(groupOptions.map((g) => g.id));
-      return allExams.filter((e) => groupIds.has(e.groupId));
-    }
-    return allExams.filter((e) => e.groupId === filterGroup);
-  }, [allExams, filterGroup, groupOptions]);
-  const scopedExamIds = useMemo(() => {
-    if (filterExam) return [filterExam];
-    if (filterGroup)
-      return allExams.filter((e) => e.groupId === filterGroup).map((e) => e.id);
-    return examOptions.map((e) => e.id);
-  }, [filterExam, filterGroup, examOptions, allExams]);
 
-  const resultsQueries = useQuery({
-    queryKey: ["ranking-results", scopedExamIds],
-    queryFn: async () => {
-      if (!scopedExamIds.length) return [];
-      const responses = await Promise.all(
-        scopedExamIds.map((id) =>
-          examsApi.getResults(id).then((r) => r.data?.data || []),
-        ),
-      );
-      return responses.flat();
-    },
-    enabled: scopedExamIds.length > 0,
+  // Lightweight dropdown-source query — reactive to draft selections (cascading
+  // select UX, same pattern as the Language→Level dropdown elsewhere in the app),
+  // not gated behind Apply since it only populates a picklist, not the data table.
+  const examOptionsParams = {
+    ...(draftRankFilters.groupId && { groupId: draftRankFilters.groupId }),
+    ...(!draftRankFilters.groupId &&
+      draftRankFilters.languageId && { languageId: draftRankFilters.languageId }),
+    ...(!draftRankFilters.groupId &&
+      draftRankFilters.levelId && { levelId: draftRankFilters.levelId }),
+  };
+  const { data: examOptRes } = useQuery({
+    queryKey: ["exam-options", branchId, examOptionsParams],
+    queryFn: () => examsApi.getOptions(branchId, examOptionsParams),
+    enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+  const examOptions = examOptRes?.data?.data || [];
+
+  // ── Main ranking aggregate query — one request per Apply / page change ─────
+  const rankQueryParams = {
+    page: rankPage,
+    pageSize: RANKING_PAGE_SIZE,
+    ...(appliedRankFilters.examId && { examId: appliedRankFilters.examId }),
+    ...(!appliedRankFilters.examId &&
+      appliedRankFilters.groupId && { groupId: appliedRankFilters.groupId }),
+    ...(!appliedRankFilters.examId &&
+      !appliedRankFilters.groupId &&
+      appliedRankFilters.languageId && { languageId: appliedRankFilters.languageId }),
+    ...(!appliedRankFilters.examId &&
+      !appliedRankFilters.groupId &&
+      appliedRankFilters.levelId && { levelId: appliedRankFilters.levelId }),
+  };
+
+  const {
+    data: rankRes,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: ["exam-ranking", branchId, rankQueryParams],
+    queryFn: () => examsApi.getRankingByBranch(branchId, rankQueryParams),
+    enabled: !!branchId,
+    keepPreviousData: true,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
-  const allResults = resultsQueries.data || [];
-  const rankings = useMemo(() => {
-    if (!allResults.length) return [];
-    const byStudent = {};
-    allResults.forEach((r) => {
-      if (!byStudent[r.studentId])
-        byStudent[r.studentId] = {
-          studentId: r.studentId,
-          studentName: r.studentName || "—",
-          marks: [],
-          attempts: 0,
-          passed: false,
-        };
-      byStudent[r.studentId].marks.push(r.marksObtained);
-      byStudent[r.studentId].attempts += 1;
-      if (r.passed) byStudent[r.studentId].passed = true;
-    });
-    const rows = Object.values(byStudent).map((s) => ({
-      studentId: s.studentId,
-      studentName: s.studentName,
-      totalMarks: s.marks.reduce((a, b) => a + b, 0),
-      bestMark: Math.max(...s.marks),
-      averageMark: s.marks.reduce((a, b) => a + b, 0) / s.marks.length,
-      attempts: s.attempts,
-      passed: s.passed,
-    }));
-    rows.sort((a, b) =>
-      b.averageMark !== a.averageMark
-        ? b.averageMark - a.averageMark
-        : b.bestMark - a.bestMark,
-    );
-    let currentRank = 1;
-    return rows.map((r, idx) => {
-      if (idx > 0 && r.averageMark < rows[idx - 1].averageMark)
-        currentRank = idx + 1;
-      return { ...r, rank: currentRank };
-    });
-  }, [allResults]);
+  const pagedData = rankRes?.data?.data;
+  const pagedRankings = pagedData?.items || [];
+  const totalCount = pagedData?.totalCount ?? 0;
+  const totalRankPages = pagedData?.totalPages ?? 1;
 
-  const totalRankPages = Math.max(
-    1,
-    Math.ceil(rankings.length / RANKING_PAGE_SIZE),
-  );
-  const pagedRankings = rankings.slice(
-    (rankPage - 1) * RANKING_PAGE_SIZE,
-    rankPage * RANKING_PAGE_SIZE,
-  );
   const scopeLabel = useMemo(() => {
     const parts = [];
-    if (filterExam) {
-      const e = allExams.find((x) => x.id === filterExam);
+    if (appliedRankFilters.examId) {
+      const e = examOptions.find((x) => x.id === appliedRankFilters.examId);
       if (e) parts.push(`Exam: ${e.title}`);
-    } else if (filterGroup) {
-      const g = groups.find((x) => x.id === filterGroup);
+    } else if (appliedRankFilters.groupId) {
+      const g = groups.find((x) => x.id === appliedRankFilters.groupId);
       if (g) parts.push(`Group: ${g.name}`);
     }
-    if (filterLanguage) parts.push(`Language: ${filterLanguage}`);
-    if (filterLevel) parts.push(`Level: ${filterLevel}`);
+    if (appliedRankFilters.languageId) {
+      const l = languageOptions.find((x) => x.id === appliedRankFilters.languageId);
+      if (l) parts.push(`Language: ${l.name}`);
+    }
+    if (appliedRankFilters.levelId) {
+      const l = levelOptions.find((x) => x.id === appliedRankFilters.levelId);
+      if (l) parts.push(`Level: ${l.code}`);
+    }
     return parts.length ? parts.join(" · ") : "All exams (branch-wide)";
-  }, [filterExam, filterGroup, filterLanguage, filterLevel, allExams, groups]);
-
-  const isLoading = resultsQueries.isLoading && scopedExamIds.length > 0;
+  }, [appliedRankFilters, examOptions, groups, languageOptions, levelOptions]);
 
   return (
     <div className="space-y-4">
       <div className="card">
-        <div className="p-4 border-b dark:border-gray-700">
+        <form
+          onSubmit={applyRankFilters}
+          className="p-4 border-b dark:border-gray-700"
+        >
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="label text-xs mb-1 block">Language</label>
               <select
                 className="input w-40 text-sm"
-                value={filterLanguage}
-                onChange={(e) => {
-                  setFilterLanguage(e.target.value);
-                  setFilterLevel("");
-                  setFilterGroup("");
-                  setFilterExam("");
-                  setRankPage(1);
-                }}
+                value={draftRankFilters.languageId}
+                onChange={(e) => setRankDraft("languageId", e.target.value)}
               >
                 <option value="">All Languages</option>
                 {languageOptions.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
+                  <option key={l.id} value={l.id}>
+                    {l.name}
                   </option>
                 ))}
               </select>
@@ -803,19 +883,14 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
               <label className="label text-xs mb-1 block">Level</label>
               <select
                 className="input w-32 text-sm"
-                value={filterLevel}
-                onChange={(e) => {
-                  setFilterLevel(e.target.value);
-                  setFilterGroup("");
-                  setFilterExam("");
-                  setRankPage(1);
-                }}
+                value={draftRankFilters.levelId}
+                onChange={(e) => setRankDraft("levelId", e.target.value)}
                 disabled={levelOptions.length === 0}
               >
                 <option value="">All Levels</option>
                 {levelOptions.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
+                  <option key={l.id} value={l.id}>
+                    {l.code}
                   </option>
                 ))}
               </select>
@@ -824,12 +899,8 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
               <label className="label text-xs mb-1 block">Group</label>
               <select
                 className="input w-52 text-sm"
-                value={filterGroup}
-                onChange={(e) => {
-                  setFilterGroup(e.target.value);
-                  setFilterExam("");
-                  setRankPage(1);
-                }}
+                value={draftRankFilters.groupId}
+                onChange={(e) => setRankDraft("groupId", e.target.value)}
                 disabled={groupOptions.length === 0}
               >
                 <option value="">All Groups</option>
@@ -844,11 +915,8 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
               <label className="label text-xs mb-1 block">Specific Exam</label>
               <select
                 className="input w-56 text-sm"
-                value={filterExam}
-                onChange={(e) => {
-                  setFilterExam(e.target.value);
-                  setRankPage(1);
-                }}
+                value={draftRankFilters.examId}
+                onChange={(e) => setRankDraft("examId", e.target.value)}
                 disabled={examOptions.length === 0}
               >
                 <option value="">All Exams in Scope</option>
@@ -859,7 +927,19 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
                 ))}
               </select>
             </div>
+
+            <Button
+              type="submit"
+              icon={Search}
+              variant={hasUnappliedRankChanges ? "primary" : "secondary"}
+              loading={isFetching && !isLoading}
+              className="self-end"
+            >
+              Apply
+            </Button>
+
             <button
+              type="button"
               onClick={resetRankFilters}
               disabled={!isAnyRankFilterActive}
               title="Reset ranking filters"
@@ -868,7 +948,7 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
               <RotateCcw size={12} /> Reset
             </button>
             <span className="text-xs text-gray-400 pb-1 ml-auto">
-              {rankings.length} students ranked
+              {totalCount} students ranked
             </span>
           </div>
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
@@ -877,46 +957,46 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
               {scopeLabel}
             </span>
           </p>
-        </div>
+        </form>
 
-        {rankings.length >= 3 && !isLoading && (
+        {rankPage === 1 && pagedRankings.length >= 3 && !isLoading && (
           <div className="px-4 pt-4 pb-2">
             <div className="flex items-end justify-center gap-3 mb-4">
-              {rankings[1] && (
+              {pagedRankings[1] && (
                 <div className="flex flex-col items-center gap-1 w-36">
                   <span className="text-2xl">🥈</span>
                   <p className="text-xs font-semibold text-center leading-tight dark:text-gray-200 truncate w-full text-center">
-                    {rankings[1].studentName}
+                    {pagedRankings[1].studentName}
                   </p>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-t-lg flex items-center justify-center h-14">
                     <span className="text-sm font-bold text-gray-600 dark:text-gray-300">
-                      {rankings[1].averageMark.toFixed(1)}
+                      {pagedRankings[1].averageMark.toFixed(1)}
                     </span>
                   </div>
                 </div>
               )}
-              {rankings[0] && (
+              {pagedRankings[0] && (
                 <div className="flex flex-col items-center gap-1 w-36">
                   <span className="text-3xl">🥇</span>
                   <p className="text-xs font-semibold text-center leading-tight dark:text-gray-200 truncate w-full text-center">
-                    {rankings[0].studentName}
+                    {pagedRankings[0].studentName}
                   </p>
                   <div className="w-full bg-amber-100 dark:bg-amber-900/40 border-2 border-amber-300 dark:border-amber-700 rounded-t-lg flex items-center justify-center h-20">
                     <span className="text-base font-bold text-amber-700 dark:text-amber-400">
-                      {rankings[0].averageMark.toFixed(1)}
+                      {pagedRankings[0].averageMark.toFixed(1)}
                     </span>
                   </div>
                 </div>
               )}
-              {rankings[2] && (
+              {pagedRankings[2] && (
                 <div className="flex flex-col items-center gap-1 w-36">
                   <span className="text-2xl">🥉</span>
                   <p className="text-xs font-semibold text-center leading-tight dark:text-gray-200 truncate w-full text-center">
-                    {rankings[2].studentName}
+                    {pagedRankings[2].studentName}
                   </p>
                   <div className="w-full bg-orange-100 dark:bg-orange-900/30 rounded-t-lg flex items-center justify-center h-10">
                     <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
-                      {rankings[2].averageMark.toFixed(1)}
+                      {pagedRankings[2].averageMark.toFixed(1)}
                     </span>
                   </div>
                 </div>
@@ -927,11 +1007,7 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
 
         <Table
           loading={isLoading}
-          emptyMsg={
-            scopedExamIds.length === 0
-              ? "Select a language, level, group, or exam to load rankings."
-              : "No results found for this scope."
-          }
+          emptyMsg="No results found for this scope."
           data={pagedRankings}
           columns={[
             {
@@ -1002,7 +1078,7 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
         {totalRankPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t dark:border-gray-700">
             <span className="text-xs text-gray-500">
-              Page {rankPage} of {totalRankPages} · {rankings.length} students
+              Page {rankPage} of {totalRankPages} · {totalCount} students
             </span>
             <div className="flex gap-2">
               <button
@@ -1031,99 +1107,130 @@ function RankingsSection({ groups = [], allExams = [], branchId }) {
 export default function Exams() {
   const { branchId } = useAuthStore();
   const qc = useQueryClient();
-  const [filters, setFiltersState] = useState({ ...DEFAULT_FILTERS });
+
+  const [draftFilters, setDraftFilters] = useState({ ...DEFAULT_FILTERS });
+  const [appliedFilters, setAppliedFilters] = useState({ ...DEFAULT_FILTERS });
   const [page, setPage] = useState(1);
+
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [mainTab, setMainTab] = useState("exams");
 
-  const setFilter = (key, value) => {
-    setFiltersState((prev) => ({ ...prev, [key]: value }));
+  const setDraft = (key, value) =>
+    setDraftFilters((prev) => ({ ...prev, [key]: value }));
+
+  const applyFilters = (e) => {
+    e?.preventDefault?.();
+    setAppliedFilters(draftFilters);
     setPage(1);
   };
+
   const resetFilters = () => {
-    setFiltersState({ ...DEFAULT_FILTERS });
+    setDraftFilters({ ...DEFAULT_FILTERS });
+    setAppliedFilters({ ...DEFAULT_FILTERS });
     setPage(1);
   };
+
   const isAnyFilterActive = useMemo(
-    () => Object.entries(filters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
-    [filters],
+    () =>
+      Object.entries(appliedFilters).some(([k, v]) => v !== DEFAULT_FILTERS[k]) ||
+      Object.entries(draftFilters).some(([k, v]) => v !== DEFAULT_FILTERS[k]),
+    [appliedFilters, draftFilters],
   );
 
+  const hasUnappliedChanges = useMemo(
+    () => JSON.stringify(draftFilters) !== JSON.stringify(appliedFilters),
+    [draftFilters, appliedFilters],
+  );
+
+  // ── Lookups (loaded once, cached indefinitely) ──────────────────────────────
   const { data: grpRes } = useQuery({
     queryKey: ["groups", branchId],
     queryFn: () => groupsApi.getByBranch(branchId),
     enabled: !!branchId,
-  });
-  const { data: periodRes } = useQuery({
-    queryKey: ["period-labels"],
-    queryFn: lookupsApi.getPeriodLabels,
-  });
-  const { data: exmRes, isLoading } = useQuery({
-    queryKey: ["exams", filters.selGroup, branchId],
-    queryFn: async () => {
-      if (filters.selGroup) {
-        const r = await examsApi.getByGroup(filters.selGroup);
-        return r.data?.data || [];
-      }
-      const allGroups = grpRes?.data?.data || [];
-      if (!allGroups.length) return [];
-      const results = await Promise.all(
-        allGroups.map((g) =>
-          examsApi.getByGroup(g.id).then((r) => r.data?.data || []),
-        ),
-      );
-      return results.flat();
-    },
-    enabled: !!branchId && !!grpRes,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   const groups = grpRes?.data?.data || [];
-  const periodLabels = periodRes?.data?.data || [];
-  const allExams = exmRes || [];
 
-  const availableYears = useMemo(
-    () =>
-      [
-        ...new Set(allExams.map((e) => new Date(e.examDate).getFullYear())),
-      ].sort((a, b) => b - a),
-    [allExams],
-  );
+  const queryParams = {
+    page,
+    pageSize: PAGE_SIZE,
+    ...(appliedFilters.groupId && { groupId: appliedFilters.groupId }),
+    ...(appliedFilters.typeFilter && {
+      isFinalExam: appliedFilters.typeFilter === "final",
+    }),
+    ...(appliedFilters.monthFilter && { month: Number(appliedFilters.monthFilter) }),
+    ...(appliedFilters.yearFilter && { year: Number(appliedFilters.yearFilter) }),
+    ...(appliedFilters.resultFilter && { resultFilter: appliedFilters.resultFilter }),
+  };
 
-  const filteredExams = useMemo(
-    () =>
-      allExams.filter((e) => {
-        if (filters.typeFilter === "final" && !e.isFinalExam) return false;
-        if (filters.typeFilter === "regular" && e.isFinalExam) return false;
-        if (filters.monthFilter) {
-          const m = new Date(e.examDate).getMonth() + 1;
-          if (String(m) !== filters.monthFilter) return false;
-        }
-        if (filters.yearFilter) {
-          const y = new Date(e.examDate).getFullYear();
-          if (String(y) !== filters.yearFilter) return false;
-        }
-        if (
-          filters.periodLabelFilter &&
-          String(e.periodLabelId) !== filters.periodLabelFilter
-        )
-          return false;
-        if (filters.resultFilter === "passed" && e.passedCount === 0)
-          return false;
-        if (filters.resultFilter === "failed" && e.failedCount === 0)
-          return false;
-        return true;
-      }),
-    [allExams, filters],
-  );
+  // ── Main paged exam list — server-ordered newest-created-first ─────────────
+  const {
+    data: exmRes,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: ["exams", branchId, queryParams],
+    queryFn: () => examsApi.getByBranch(branchId, queryParams),
+    enabled: !!branchId,
+    keepPreviousData: true,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
 
-  const totalPages = Math.max(1, Math.ceil(filteredExams.length / PAGE_SIZE));
-  const pagedExams = filteredExams.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE,
-  );
+  const pagedData = exmRes?.data?.data;
+  const pagedExams = pagedData?.items || [];
+  const totalCount = pagedData?.totalCount ?? 0;
+  const totalPages = pagedData?.totalPages ?? 1;
 
-  const invalidate = () => qc.invalidateQueries(["exams"]);
+  // ── Lightweight count queries for the stat cards (pageSize:1) ──────────────
+  const { data: totalCountRes } = useQuery({
+    queryKey: ["exams-count-total", branchId],
+    queryFn: () => examsApi.getByBranch(branchId, { page: 1, pageSize: 1 }),
+    enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+  const { data: finalCountRes } = useQuery({
+    queryKey: ["exams-count-final", branchId],
+    queryFn: () =>
+      examsApi.getByBranch(branchId, { page: 1, pageSize: 1, isFinalExam: true }),
+    enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+  const { data: regularCountRes } = useQuery({
+    queryKey: ["exams-count-regular", branchId],
+    queryFn: () =>
+      examsApi.getByBranch(branchId, { page: 1, pageSize: 1, isFinalExam: false }),
+    enabled: !!branchId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+
+  const totalExamsCount = totalCountRes?.data?.data?.totalCount ?? 0;
+  const finalCount = finalCountRes?.data?.data?.totalCount ?? 0;
+  const regularCount = regularCountRes?.data?.data?.totalCount ?? 0;
+
+  const invalidate = () => {
+    qc.invalidateQueries(["exams"]);
+    qc.invalidateQueries(["exams-count-total"]);
+    qc.invalidateQueries(["exams-count-final"]);
+    qc.invalidateQueries(["exams-count-regular"]);
+    qc.invalidateQueries(["exam-options"]);
+  };
 
   const createMut = useMutation({
     mutationFn: (d) => examsApi.create(d),
@@ -1163,11 +1270,8 @@ export default function Exams() {
     };
   }, [selected]);
 
-  const finals = allExams.filter((e) => e.isFinalExam).length;
-  const regular = allExams.filter((e) => !e.isFinalExam).length;
-
   return (
-    <div className="p-6">
+    <div className="p-6 pb-16 min-h-screen flex flex-col">
       <PageHeader
         title="Exams"
         subtitle="Manage exams, results, and rankings"
@@ -1181,19 +1285,19 @@ export default function Exams() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           title="Total Exams"
-          value={allExams.length}
+          value={totalExamsCount}
           icon={ClipboardList}
           color="bg-primary-900"
         />
         <StatCard
           title="Final Exams"
-          value={finals}
+          value={finalCount}
           icon={Award}
           color="bg-amber-500"
         />
         <StatCard
           title="Regular Tests"
-          value={regular}
+          value={regularCount}
           icon={ClipboardList}
           color="bg-blue-500"
         />
@@ -1208,7 +1312,7 @@ export default function Exams() {
       <div className="mb-4">
         <Tabs
           tabs={[
-            { key: "exams", label: "Exams", count: allExams.length },
+            { key: "exams", label: "Exams", count: totalExamsCount },
             { key: "rankings", label: "Rankings", icon: Trophy },
           ]}
           active={mainTab}
@@ -1219,14 +1323,17 @@ export default function Exams() {
       {mainTab === "exams" && (
         <>
           <div className="card mb-4">
-            <div className="p-4 border-b dark:border-gray-700 space-y-3">
+            <form
+              onSubmit={applyFilters}
+              className="p-4 border-b dark:border-gray-700 space-y-3"
+            >
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-48">
                   <label className="label text-xs mb-1 block">Group</label>
                   <select
                     className="input w-full text-sm"
-                    value={filters.selGroup}
-                    onChange={(e) => setFilter("selGroup", e.target.value)}
+                    value={draftFilters.groupId}
+                    onChange={(e) => setDraft("groupId", e.target.value)}
                   >
                     <option value="">— All Groups —</option>
                     {groups.map((g) => (
@@ -1237,6 +1344,7 @@ export default function Exams() {
                   </select>
                 </div>
                 <button
+                  type="button"
                   onClick={resetFilters}
                   title="Reset all filters"
                   disabled={!isAnyFilterActive}
@@ -1250,8 +1358,8 @@ export default function Exams() {
                   <label className="label text-xs mb-1 block">Month</label>
                   <select
                     className="input w-36 text-sm"
-                    value={filters.monthFilter}
-                    onChange={(e) => setFilter("monthFilter", e.target.value)}
+                    value={draftFilters.monthFilter}
+                    onChange={(e) => setDraft("monthFilter", e.target.value)}
                   >
                     <option value="">All Months</option>
                     {MONTHS.map((m) => (
@@ -1265,32 +1373,13 @@ export default function Exams() {
                   <label className="label text-xs mb-1 block">Year</label>
                   <select
                     className="input w-28 text-sm"
-                    value={filters.yearFilter}
-                    onChange={(e) => setFilter("yearFilter", e.target.value)}
+                    value={draftFilters.yearFilter}
+                    onChange={(e) => setDraft("yearFilter", e.target.value)}
                   >
                     <option value="">All Years</option>
-                    {availableYears.map((y) => (
+                    {YEAR_OPTIONS.map((y) => (
                       <option key={y} value={String(y)}>
                         {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label text-xs mb-1 block">
-                    Period Label
-                  </label>
-                  <select
-                    className="input w-44 text-sm"
-                    value={filters.periodLabelFilter}
-                    onChange={(e) =>
-                      setFilter("periodLabelFilter", e.target.value)
-                    }
-                  >
-                    <option value="">All Periods</option>
-                    {periodLabels.map((p) => (
-                      <option key={p.id} value={String(p.id)}>
-                        {p.name}
                       </option>
                     ))}
                   </select>
@@ -1299,8 +1388,8 @@ export default function Exams() {
                   <label className="label text-xs mb-1 block">Type</label>
                   <select
                     className="input w-36 text-sm"
-                    value={filters.typeFilter}
-                    onChange={(e) => setFilter("typeFilter", e.target.value)}
+                    value={draftFilters.typeFilter}
+                    onChange={(e) => setDraft("typeFilter", e.target.value)}
                   >
                     <option value="">All Types</option>
                     <option value="final">Final Exams</option>
@@ -1311,19 +1400,30 @@ export default function Exams() {
                   <label className="label text-xs mb-1 block">Result</label>
                   <select
                     className="input w-36 text-sm"
-                    value={filters.resultFilter}
-                    onChange={(e) => setFilter("resultFilter", e.target.value)}
+                    value={draftFilters.resultFilter}
+                    onChange={(e) => setDraft("resultFilter", e.target.value)}
                   >
                     <option value="">All Results</option>
                     <option value="passed">Has Passed</option>
                     <option value="failed">Has Failed</option>
                   </select>
                 </div>
+
+                <Button
+                  type="submit"
+                  icon={Search}
+                  variant={hasUnappliedChanges ? "primary" : "secondary"}
+                  loading={isFetching && !isLoading}
+                  className="self-end"
+                >
+                  Apply
+                </Button>
+
                 <span className="text-xs text-gray-400 pb-1 ml-auto">
-                  {filteredExams.length} records
+                  {totalCount} records
                 </span>
               </div>
-            </div>
+            </form>
           </div>
 
           <div className="card">
@@ -1406,14 +1506,16 @@ export default function Exams() {
                     onClick={() => setPage((p) => p - 1)}
                     className="btn-secondary disabled:opacity-40 text-xs px-3 py-1"
                   >
-                    ← Prev
+                    <ChevronLeft size={14} className="inline -mt-0.5 mr-1" />
+                    Prev
                   </button>
                   <button
                     disabled={page === totalPages}
                     onClick={() => setPage((p) => p + 1)}
                     className="btn-secondary disabled:opacity-40 text-xs px-3 py-1"
                   >
-                    Next →
+                    Next
+                    <ChevronRight size={14} className="inline -mt-0.5 ml-1" />
                   </button>
                 </div>
               </div>
@@ -1423,11 +1525,7 @@ export default function Exams() {
       )}
 
       {mainTab === "rankings" && (
-        <RankingsSection
-          groups={groups}
-          allExams={allExams}
-          branchId={branchId}
-        />
+        <RankingsSection groups={groups} branchId={branchId} />
       )}
 
       <Modal
@@ -1439,7 +1537,7 @@ export default function Exams() {
           groups={groups}
           onSubmit={createMut.mutate}
           loading={createMut.isPending}
-          initial={filters.selGroup ? { groupId: filters.selGroup } : {}}
+          initial={draftFilters.groupId ? { groupId: draftFilters.groupId } : {}}
         />
       </Modal>
 
