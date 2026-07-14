@@ -1320,7 +1320,7 @@ function InstructorsPane({ branchId, period, onPeriodChange }) {
         <PeriodSelector value={period} onChange={onPeriodChange} />
       </div>
       <SecTitle>Instructor statistics</SecTitle>
-      <G cols={3}>
+      <G cols={2}>
         <KPI
           label="Total commissions"
           value={fmtEGP(data?.totalCommissions, true)}
@@ -1332,12 +1332,6 @@ function InstructorsPane({ branchId, period, onPeriodChange }) {
           value={fmtEGP(data?.netRevenue, true)}
           accent="#15803d"
           icon={DollarSign}
-        />
-        <KPI
-          label="Pending closings"
-          value={fmtNum(data?.pendingClosings)}
-          accent="#dc2626"
-          icon={AlertCircle}
         />
       </G>
 

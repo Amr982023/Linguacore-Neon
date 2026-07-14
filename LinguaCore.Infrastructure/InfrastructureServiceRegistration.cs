@@ -38,17 +38,6 @@ public static class InfrastructureServiceRegistration
         // ?? Unit of Work ??????????????????????????????????????????????????????
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-        // ?? Firebase sync (HttpClient injected via named factory) ?????????????
-        // AddHttpClient<IFirebaseSyncService, FirebaseSyncService> handles BOTH
-        // the IFirebaseSyncService ? FirebaseSyncService mapping AND HttpClient injection.
-        // Do NOT also call AddScoped<IFirebaseSyncService> — that would create a
-        // second registration without an HttpClient.
-
-        //services.AddHttpClient<IFirebaseSyncService, FirebaseSyncService>();
-
-        
-
-
         // ?? Other services ????????????????????????????????????????????????????
         services.AddScoped<ISmtpService, SmtpService>();
         services.AddScoped<INotificationService, NotificationService>();
@@ -57,17 +46,9 @@ public static class InfrastructureServiceRegistration
         // ?? WhatsApp queue (writes JSON files, picked up by desktop helper) ???
         services.AddSingleton<IWhatsAppService, WhatsAppQueueService>();
 
-        // ?? Background worker (runs every 5 min, registered once) ????????????
-        // services.AddHostedService<FirebaseSyncWorker>();
-
         services.AddSingleton<ILicenseService, LicenseService>();
-        //backup 
-        services.Configure<BackupSettings>(
-            configuration.GetSection("BackupSettings"));
-
         
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-
 
         return services;
     }
