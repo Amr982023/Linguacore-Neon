@@ -1,5 +1,4 @@
 # LinguaCore — Language Center Management System
-> **Prepared by Novexus Solutions**
 
 ---
 
