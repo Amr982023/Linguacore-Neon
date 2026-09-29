@@ -8,7 +8,6 @@
 | Software | Version | Download |
 |----------|---------|----------|
 | .NET 9 SDK | 9.x | https://dotnet.microsoft.com/download/dotnet/9.0 |
-| Node.js | 20+ | https://nodejs.org |
 | SQL Server Express | Any | https://www.microsoft.com/en-us/sql-server/sql-server-downloads |
 | dotnet-ef tools | 9.x | `dotnet tool install -g dotnet-ef` |
 
